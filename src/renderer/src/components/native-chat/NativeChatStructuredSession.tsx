@@ -221,6 +221,7 @@ export function NativeChatStructuredSession(
           <NativeChatMessageList
             session={session}
             journalItems={controller.journalItems}
+            isVisible={props.isVisible}
             isWorking={controller.isWorking}
             expandSignal={false}
             fontScale={fontScale.scale}
