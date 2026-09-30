@@ -53,7 +53,7 @@ export const FLAG_HELP_TEXT: Record<string, string> = {
   ref: '--ref <ref>            Base ref to persist for the repo',
   repo: '--repo <selector>      Repo selector such as id:<id>, name:<name>, or path:<path>',
   'retry-request':
-    '--retry-request <id>   Request ID Orca reported for an earlier attempt; reusing it makes the retry idempotent',
+    '--retry-request <id>   Resume the request Orca reported this ID for instead of starting a new one; idempotent',
   'restore-window': '--restore-window     Bring the target app/window forward before the operation',
   session: '--session <id>        Snapshot namespace for a related computer-use workflow',
   setup: '--setup run|skip|inherit Setup policy for repo-defined setup hooks',
@@ -69,7 +69,7 @@ export const FLAG_HELP_TEXT: Record<string, string> = {
   phase: '--phase <text>        Worker phase to include in orchestration payload JSON',
   'timeout-ms': '--timeout-ms <ms>     Maximum wait time before timing out',
   'wait-submit':
-    '--wait-submit <seconds> Seconds (max 3600) to watch a --text --enter prompt get submitted; never resends',
+    '--wait-submit <seconds> Observe this accepted prompt without resending it (max 3600; needs --text --enter, no --interrupt)',
   'to-element-index': '--to-element-index <n> Destination element index from get-app-state',
   'to-x': '--to-x <x>             Destination window-local x coordinate',
   'to-y': '--to-y <y>             Destination window-local y coordinate',
