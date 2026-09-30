@@ -53,6 +53,17 @@ describe('flag help text', () => {
     }
   })
 
+  // Why: a row that states the opposite of the handler would pass the "has a description" checks.
+  it('states the behaviour each new description rests on', () => {
+    const help = formatCommandHelp(spec('terminal send'))
+    expect(optionDescription(help, 'environment')).toMatch(/saved environment id or name/)
+    expect(optionDescription(help, 'pairing-code')).toMatch(/orca:\/\/pair\?/)
+    expect(optionDescription(help, 'wait-submit')).toMatch(/without resending/)
+    expect(optionDescription(help, 'wait-submit')).toMatch(/max 3600/)
+    expect(optionDescription(help, 'wait-submit')).toMatch(/no --interrupt/)
+    expect(optionDescription(help, 'retry-request')).toMatch(/idempotent/)
+  })
+
   it('shows the value placeholder the usage lines use', () => {
     const help = formatCommandHelp(spec('terminal send'))
     expect(optionRow(help, 'environment')).toMatch(/^ {2}--environment <selector> /)
@@ -81,6 +92,16 @@ describe('flag help text', () => {
     )
     for (const path of ['environment show', 'environment rm']) {
       expect(optionDescription(formatCommandHelp(spec(path)), 'pairing-code')).toMatch(/^Not used/)
+    }
+  })
+
+  // Why: these handlers throw on either selection flag, as their Notes say.
+  it('says environment list and host list reject the selection flags', () => {
+    for (const path of ['environment list', 'host list']) {
+      const help = formatCommandHelp(spec(path))
+      for (const flag of ['environment', 'pairing-code']) {
+        expect(optionDescription(help, flag), `${path} --${flag}`).toMatch(/^Rejected/)
+      }
     }
   })
 })

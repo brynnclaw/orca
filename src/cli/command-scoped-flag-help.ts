@@ -4,7 +4,7 @@ const FILE_OPEN_FOCUS_HELP =
 
 /** Per-command flag help, kept out of the shared help chain it would crowd. */
 const COMMAND_SCOPED_FLAG_HELP: Record<string, Record<string, string>> = {
-  // Why: these commands act on the pairing store, so the global routing meaning would be wrong.
+  // Why: these commands read or write this machine's pairing store, so the global routing meaning would be wrong.
   'environment add': {
     'pairing-code':
       '--pairing-code <code>  orca://pair?... code of the remote Orca runtime to save',
@@ -13,6 +13,14 @@ const COMMAND_SCOPED_FLAG_HELP: Record<string, Record<string, string>> = {
   'environment show': {
     'pairing-code': '--pairing-code <code>  Not used; reads the environments saved on this machine',
     environment: '--environment <selector> Saved environment id or name to show'
+  },
+  'environment list': {
+    'pairing-code': '--pairing-code <code>  Rejected; this command answers for this machine only',
+    environment: '--environment <selector> Rejected; this command answers for this machine only'
+  },
+  'host list': {
+    'pairing-code': '--pairing-code <code>  Rejected; this command answers for this machine only',
+    environment: '--environment <selector> Rejected; this command answers for this machine only'
   },
   'environment rm': {
     'pairing-code':
