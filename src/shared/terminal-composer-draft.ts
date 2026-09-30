@@ -22,6 +22,11 @@ export type TerminalComposerDraft = {
   promptGlyph: '❯' | '›' | '»'
 }
 
+export type TerminalComposerDraftOptions = {
+  /** Read typed text only: a dim suggestion, on the cursor row or wrapped below it, is not input. */
+  typedOnly?: boolean
+}
+
 type TerminalComposerMatch = TerminalComposerDraft & { placeholder: boolean }
 
 const COMPOSER_FRAME_LINE = /^[─━-]{8,}\s*$/
@@ -30,7 +35,8 @@ const CODEX_FOOTER_LINE = /^\s*(?:gpt-\S+|o\d\S*)\s+[·•]\s+\S.*$/i
 function composerContinuationRows(
   context: TerminalCursorContext,
   afterCursor: string,
-  codexFooterIndex: number
+  codexFooterIndex: number,
+  typedOnly: boolean
 ): { text: string; wrapped: boolean }[] {
   if (!afterCursor.trim() && !context.typedRowsBelow.some((row) => row.trim())) {
     return []
@@ -54,12 +60,13 @@ function composerContinuationRows(
     if (COMPOSER_FRAME_LINE.test(raw) || index === codexFooterIndex) {
       break
     }
-    if (!raw.trim() && !hasTypedContinuationAfter[index]) {
+    const typed = context.typedRowsBelow[index] ?? ''
+    // Why: a dim row has no typed text, so a typed-only read ends where the suggestion starts.
+    if (!(typedOnly ? typed : raw).trim() && !hasTypedContinuationAfter[index]) {
       break
     }
-    const typed = context.typedRowsBelow[index] ?? ''
     continuation.push({
-      text: typed.trim() ? typed : raw,
+      text: typedOnly || typed.trim() ? typed : raw,
       wrapped: context.rowsBelowWrapped?.[index] ?? false
     })
   }
@@ -101,15 +108,16 @@ function isStockPlaceholder(
 }
 
 function detectTerminalComposer(
-  context: TerminalCursorContext | null | undefined
+  context: TerminalCursorContext | null | undefined,
+  typedOnly = false
 ): TerminalComposerMatch | null {
   if (!context || context.cursorHidden || context.rows.length === 0) {
     return null
   }
   const cursorIndex = context.rows.length - 1
   const codexFooterIndex = findCodexFooterIndex(context)
-  let afterCursor = context.afterCursor || context.rawAfterCursor
-  let continuationRows = composerContinuationRows(context, afterCursor, codexFooterIndex)
+  let afterCursor = typedOnly ? context.afterCursor : context.afterCursor || context.rawAfterCursor
+  let continuationRows = composerContinuationRows(context, afterCursor, codexFooterIndex, typedOnly)
   const placeholder = isStockPlaceholder(afterCursor, continuationRows)
   if (placeholder) {
     afterCursor = ''
@@ -179,9 +187,10 @@ function detectTerminalComposer(
 }
 
 export function detectTerminalComposerDraft(
-  context: TerminalCursorContext | null | undefined
+  context: TerminalCursorContext | null | undefined,
+  options: TerminalComposerDraftOptions = {}
 ): TerminalComposerDraft | null {
-  const match = detectTerminalComposer(context)
+  const match = detectTerminalComposer(context, options.typedOnly === true)
   if (!match || match.placeholder) {
     return null
   }

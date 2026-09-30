@@ -146,6 +146,26 @@ describe('detectTerminalComposerDraft', () => {
     })
   })
 
+  it('reads no draft from dimmed suggestion rows when asked for typed text only', () => {
+    expect(
+      detectTerminalComposerDraft(
+        {
+          rows: ['────────', '❯ proceed with the release'],
+          typedRows: ['────────', '❯'],
+          promptGlyphBoldRows: [false, false],
+          rowsBelow: ['  and close the pull request', '────────'],
+          typedRowsBelow: ['', '────────'],
+          beforeCursor: '❯ ',
+          afterCursor: '',
+          rawAfterCursor: 'proceed with the release',
+          cursorHidden: false,
+          cursorViewportRow: 8
+        },
+        { typedOnly: true }
+      )
+    ).toBeNull()
+  })
+
   it('recognizes the bold Codex ultra composer glyph', () => {
     expect(
       detectTerminalComposerDraft({
