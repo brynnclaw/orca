@@ -1,5 +1,20 @@
 /** Per-command flag help, kept out of the shared help chain it would crowd. */
 const COMMAND_SCOPED_FLAG_HELP: Record<string, Record<string, string>> = {
+  // Why: these commands act on the pairing store, so the global routing meaning would be wrong.
+  'environment add': {
+    'pairing-code':
+      '--pairing-code <code>  orca://pair?... code of the remote Orca runtime to save',
+    environment: '--environment <selector> Not used; the environment is saved on this machine'
+  },
+  'environment show': {
+    'pairing-code': '--pairing-code <code>  Not used; reads the environments saved on this machine',
+    environment: '--environment <selector> Saved environment id or name to show'
+  },
+  'environment rm': {
+    'pairing-code':
+      '--pairing-code <code>  Not used; removes from the environments saved on this machine',
+    environment: '--environment <selector> Saved environment id or name to remove'
+  },
   'skills get': {
     full: '--full                 Print the full guide with bundled references',
     reference: '--reference <name>     Print one bundled reference by name',
