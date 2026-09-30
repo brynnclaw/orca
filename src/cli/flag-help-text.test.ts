@@ -23,12 +23,20 @@ function optionRow(help: string, flag: string): string {
   return row
 }
 
+// Why: the description may not start with `<`, so a placeholder-only row reads as undescribed.
 function optionDescription(help: string, flag: string): string {
-  const match = optionRow(help, flag).match(new RegExp(`^  --${flag}(?: <[^>]+>)?\\s+(\\S.*)$`))
+  const match = optionRow(help, flag).match(new RegExp(`^  --${flag}(?: <[^>]+>)?\\s+([^<\\s].*)$`))
   return match?.[1] ?? ''
 }
 
 describe('flag help text', () => {
+  it('reads no description from a row that has only a value placeholder', () => {
+    expect(optionDescription('  --environment <selector>', 'environment')).toBe('')
+    expect(optionDescription('  --environment <selector>   ', 'environment')).toBe('')
+    expect(optionDescription('  --environment', 'environment')).toBe('')
+    expect(optionDescription('  --environment <selector> Saved id', 'environment')).toBe('Saved id')
+  })
+
   it('describes every global flag', () => {
     const help = formatCommandHelp(spec('terminal list'))
     for (const flag of GLOBAL_FLAGS) {
@@ -53,15 +61,21 @@ describe('flag help text', () => {
     }
   })
 
-  // Why: a row that states the opposite of the handler would pass the "has a description" checks.
+  // Why: pinned verbatim, since a substring check still passes a row that states the opposite.
   it('states the behaviour each new description rests on', () => {
     const help = formatCommandHelp(spec('terminal send'))
-    expect(optionDescription(help, 'environment')).toMatch(/saved environment id or name/)
-    expect(optionDescription(help, 'pairing-code')).toMatch(/orca:\/\/pair\?/)
-    expect(optionDescription(help, 'wait-submit')).toMatch(/without resending/)
-    expect(optionDescription(help, 'wait-submit')).toMatch(/max 3600/)
-    expect(optionDescription(help, 'wait-submit')).toMatch(/no --interrupt/)
-    expect(optionDescription(help, 'retry-request')).toMatch(/idempotent/)
+    expect(optionDescription(help, 'environment')).toBe(
+      'Connect using a saved environment id or name'
+    )
+    expect(optionDescription(help, 'pairing-code')).toBe(
+      'Connect to a remote Orca runtime using an orca://pair?... code'
+    )
+    expect(optionDescription(help, 'wait-submit')).toBe(
+      'Observe this accepted prompt without resending it (max 3600; needs --text --enter, no --interrupt)'
+    )
+    expect(optionDescription(help, 'retry-request')).toBe(
+      'Resume the request Orca reported this ID for instead of starting a new one; idempotent'
+    )
   })
 
   it('shows the value placeholder the usage lines use', () => {
@@ -95,12 +109,43 @@ describe('flag help text', () => {
     }
   })
 
-  // Why: these handlers throw on either selection flag, as their Notes say.
-  it('says environment list and host list reject the selection flags', () => {
-    for (const path of ['environment list', 'host list']) {
+  // Why: these handlers throw on either selection flag, so the global "Connect ..." row would be false.
+  it('says the commands that reject the selection flags reject them', () => {
+    const rejecting = [
+      'environment list',
+      'host list',
+      'account add',
+      'account list',
+      'artifacts list',
+      'artifacts share',
+      'artifacts update',
+      'artifacts unshare',
+      'artifacts delete',
+      'profile state exports',
+      'profile state rollback',
+      'agent hooks prepare-codex',
+      'agent hooks status',
+      'agent hooks off',
+      'agent hooks on'
+    ]
+    for (const path of rejecting) {
       const help = formatCommandHelp(spec(path))
       for (const flag of ['environment', 'pairing-code']) {
-        expect(optionDescription(help, flag), `${path} --${flag}`).toMatch(/^Rejected/)
+        expect(optionDescription(help, flag), `${path} --${flag}`).toBe(
+          'Rejected; this command only runs on this machine'
+        )
+      }
+    }
+  })
+
+  // Why: index.ts drops both selection flags for these commands without an error, so they run here.
+  it('says the commands that ignore the selection flags do not use them', () => {
+    for (const path of ['serve', 'vm recipe doctor', 'agent-context']) {
+      const help = formatCommandHelp(spec(path))
+      for (const flag of ['environment', 'pairing-code']) {
+        expect(optionDescription(help, flag), `${path} --${flag}`).toBe(
+          'Not used; this command only runs on this machine'
+        )
       }
     }
   })
