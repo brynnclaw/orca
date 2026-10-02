@@ -4,6 +4,7 @@ import {
 } from '../../shared/agent-prompt-injection'
 import {
   detectTerminalComposerDraft,
+  isTerminalComposerAtCursor,
   type TerminalCursorContext
 } from '../../shared/terminal-composer-draft'
 
@@ -45,13 +46,16 @@ export function classifyAgentPromptComposerResidue(
   return ownPaste.payload === pastePayload ? 'same-prompt' : 'foreign'
 }
 
-/** Whether the composer still shows this paste's words; false once it is emptied or holds others. */
-export function composerShowsAgentPromptPaste(
+/** Whether the composer was seen no longer showing this paste: emptied, or holding other words. */
+export function composerNoLongerShowsAgentPromptPaste(
   context: TerminalCursorContext | null | undefined,
   payload: string
 ): boolean {
-  const residue = readTypedComposerText(context)
-  return residue !== '' && residue === normalizeComposerText(stripPasteFrame(payload))
+  // Why: a read that cannot see the composer (hidden cursor, cursor elsewhere) proves nothing.
+  if (!isTerminalComposerAtCursor(context)) {
+    return false
+  }
+  return readTypedComposerText(context) !== normalizeComposerText(stripPasteFrame(payload))
 }
 
 function readTypedComposerText(context: TerminalCursorContext | null | undefined): string {
