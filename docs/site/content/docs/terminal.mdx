@@ -57,7 +57,7 @@ By default, local terminal panes on macOS and Linux open your system shell (`$SH
   [ -n "${BASH_VERSION:-}" ] && [ -f "$HOME/.bashrc" ] && . "$HOME/.bashrc"
   ```
 
-  The guard skips bash-only setup in `sh` login shells that also read `~/.profile`, even with `set -u` enabled. Add it only if the login file bash reads does not already source `~/.bashrc`.
+  The guard keeps non-bash shells that also read `~/.profile` from loading bash-only setup, even with `set -u` enabled. Add it only if the login file bash reads does not already source `~/.bashrc`.
 
 When Orca uses its bash integration wrapper, it starts bash with `--rcfile` instead of `-l`. The wrapper sources the same login files without separately sourcing `~/.bashrc`; bash itself is not in login mode.
 
