@@ -767,4 +767,90 @@ describe('agent prompt composer residue (#15976)', () => {
       pastes: writes.filter((data) => data.includes(AGENT_PROMPT_BRACKETED_PASTE_END)).length
     }).toEqual({ firstResult: 'fulfilled', nextReason: null, pastes: 2 })
   })
+
+  it.each([
+    [
+      'a multi-line',
+      'if ready:\ndeploy()',
+      `\x1b[2J\x1b[HClaude Code\r\n\r\n${FRAME}\r\n❯ if ready:\r\n  deploy()\r\n${FRAME}\r\n` +
+        '\x1b[5;11H'
+    ],
+    ['a double-spaced', 'first  task', composerFrame('first  task')]
+  ])(
+    'still pastes a different next prompt over a late repaint of %s landed prompt',
+    async (_label, firstPrompt, firstFrame) => {
+      vi.useFakeTimers()
+      const { runtime, handle, writes } = await createAgentPromptSubmissionRuntime(
+        (runtime, data) => {
+          if (data.includes('second task')) {
+            runtime.onPtyData('pty-prompt', composerFrame('second task'), Date.now())
+          } else if (data.includes(AGENT_PROMPT_BRACKETED_PASTE_END)) {
+            // The composer shows the landed prompt with its whitespace collapsed.
+            runtime.onPtyData('pty-prompt', firstFrame, Date.now())
+          } else if (data === '\r') {
+            runtime.onPtyData('pty-prompt', `\x1b]0;Codex idle\x07${WORKING_TITLE}`, Date.now())
+            // The turn starts at once, but the emptied composer is painted only later.
+            setTimeout(() => runtime.onPtyData('pty-prompt', composerFrame(''), Date.now()), 1_500)
+          }
+        }
+      )
+      runtime.onPtyData('pty-prompt', composerFrame(''), Date.now())
+
+      const first = runtime.sendTerminalAgentPrompt(handle, firstPrompt, { inputKind: 'driving' })
+      const next = runtime.sendTerminalAgentPrompt(handle, 'second task', { inputKind: 'driving' })
+      const settled = Promise.allSettled([first, next])
+      await vi.runAllTimersAsync()
+      const [firstResult, nextResult] = await settled
+
+      expect({
+        firstResult: firstResult.status,
+        nextReason: nextResult.status === 'rejected' ? String(nextResult.reason?.message) : null,
+        pastes: writes.filter((data) => data.includes(AGENT_PROMPT_BRACKETED_PASTE_END)).length
+      }).toEqual({ firstResult: 'fulfilled', nextReason: null, pastes: 2 })
+    }
+  )
+
+  it.each([
+    ['a different', 'second task'],
+    ['an identical', 'first task']
+  ])(
+    'refuses %s next prompt onto a recall after the composer showed other words',
+    async (_label, nextPrompt) => {
+      vi.useFakeTimers()
+      const { runtime, handle, writes } = await createAgentPromptSubmissionRuntime(
+        (runtime, data) => {
+          if (data.includes('first task')) {
+            runtime.onPtyData('pty-prompt', composerFrame('first task'), Date.now())
+          } else if (data === '\r') {
+            runtime.onPtyData('pty-prompt', `\x1b]0;Codex idle\x07${WORKING_TITLE}`, Date.now())
+            // The composer goes from the landed paste straight to other words, never read empty.
+            setTimeout(
+              () => runtime.onPtyData('pty-prompt', composerFrame('fix the'), Date.now()),
+              1_500
+            )
+          }
+        }
+      )
+      runtime.onPtyData('pty-prompt', composerFrame(''), Date.now())
+
+      const first = runtime.sendTerminalAgentPrompt(handle, 'first task', { inputKind: 'driving' })
+      await vi.advanceTimersByTimeAsync(3_000)
+      await expect(first).resolves.toMatchObject({ accepted: true })
+      // A history recall replaces those words with the landed prompt.
+      runtime.onPtyData('pty-prompt', composerFrame('first task'), Date.now())
+      const writesBefore = writes.length
+      const next = runtime.sendTerminalAgentPrompt(handle, nextPrompt, { inputKind: 'driving' })
+      const settled = Promise.allSettled([next])
+      await vi.advanceTimersByTimeAsync(2_000)
+      const [result] = await settled
+
+      expect({ result, writes: writes.slice(writesBefore) }).toMatchObject({
+        result: {
+          status: 'rejected',
+          reason: expect.objectContaining({ message: 'agent_prompt_composer_not_empty' })
+        },
+        writes: []
+      })
+    }
+  )
 })
