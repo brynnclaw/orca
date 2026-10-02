@@ -1,6 +1,6 @@
 import type { TerminalCursorContext } from '../../shared/terminal-composer-draft'
 import {
-  composerShowsAgentPromptPaste,
+  composerNoLongerShowsAgentPromptPaste,
   type AgentPromptOwnPaste
 } from './agent-prompt-composer-residue'
 
@@ -77,14 +77,15 @@ export class AgentPromptComposerLedger {
     paste.landedAt = Date.now()
     this.stopRepaintWatch(ptyId)
     // Why watch: a late repaint leaves the landed text untouched, while a recalled or retyped
-    // draft first needs the composer to read otherwise. Once it has, the exemption ends.
+    // draft first needs the composer to read otherwise. Once it has, the exemption ends; a read
+    // that cannot see the composer does not end it, because doubt never blocks a write.
     const watch = { stop: (): void => {} }
     this.repaintWatchByPtyId.set(ptyId, watch)
     const unsubscribe = this.watchComposer(ptyId, (context) => {
       if (this.repaintWatchByPtyId.get(ptyId) !== watch) {
         return
       }
-      if (!composerShowsAgentPromptPaste(context, payload)) {
+      if (composerNoLongerShowsAgentPromptPaste(context, payload)) {
         paste.repainted = true
         this.stopRepaintWatch(ptyId)
       }

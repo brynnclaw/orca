@@ -165,11 +165,6 @@ function detectTerminalComposer(
         })
         .join('')
         .trim()
-      if (!text) {
-        if (!placeholder) {
-          return null
-        }
-      }
       return {
         text,
         promptRow: context.cursorViewportRow - (cursorIndex - index),
@@ -191,7 +186,7 @@ export function detectTerminalComposerDraft(
   options: TerminalComposerDraftOptions = {}
 ): TerminalComposerDraft | null {
   const match = detectTerminalComposer(context, options.typedOnly === true)
-  if (!match || match.placeholder) {
+  if (!match || match.placeholder || !match.text) {
     return null
   }
   return {
@@ -201,6 +196,13 @@ export function detectTerminalComposerDraft(
     endRow: match.endRow,
     promptGlyph: match.promptGlyph
   }
+}
+
+/** Whether the cursor is in a composer Orca recognizes, empty or not; false for a hidden cursor. */
+export function isTerminalComposerAtCursor(
+  context: TerminalCursorContext | null | undefined
+): boolean {
+  return detectTerminalComposer(context) !== null
 }
 
 export function hasTerminalComposerPlaceholder(

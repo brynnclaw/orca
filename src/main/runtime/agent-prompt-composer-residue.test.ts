@@ -609,4 +609,86 @@ describe('agent prompt composer residue (#15976)', () => {
       })
     }
   )
+
+  it.each([
+    ['a different', 'second task'],
+    ['an identical', 'first task']
+  ])(
+    'refuses %s next prompt onto a recall after a composer that emptied after the turn start',
+    async (_label, nextPrompt) => {
+      vi.useFakeTimers()
+      const { runtime, handle, writes } = await createAgentPromptSubmissionRuntime(
+        (runtime, data) => {
+          if (data.includes('first task')) {
+            runtime.onPtyData('pty-prompt', composerFrame('first task'), Date.now())
+          } else if (data === '\r') {
+            runtime.onPtyData('pty-prompt', `\x1b]0;Codex idle\x07${WORKING_TITLE}`, Date.now())
+            // Only a read after a later output chunk can see this emptying.
+            setTimeout(() => runtime.onPtyData('pty-prompt', composerFrame(''), Date.now()), 1_500)
+          }
+        }
+      )
+      runtime.onPtyData('pty-prompt', composerFrame(''), Date.now())
+
+      const first = runtime.sendTerminalAgentPrompt(handle, 'first task', { inputKind: 'driving' })
+      await vi.advanceTimersByTimeAsync(3_000)
+      await expect(first).resolves.toMatchObject({ accepted: true })
+      runtime.onPtyData('pty-prompt', composerFrame('first task'), Date.now())
+      const writesBefore = writes.length
+      const next = runtime.sendTerminalAgentPrompt(handle, nextPrompt, { inputKind: 'driving' })
+      const settled = Promise.allSettled([next])
+      await vi.advanceTimersByTimeAsync(2_000)
+      const [result] = await settled
+
+      expect({ result, writes: writes.slice(writesBefore) }).toMatchObject({
+        result: {
+          status: 'rejected',
+          reason: expect.objectContaining({ message: 'agent_prompt_composer_not_empty' })
+        },
+        writes: []
+      })
+    }
+  )
+
+  it.each([
+    ['a hidden-cursor frame split across chunks', '\x1b[?25l', '\x1b[?25h'],
+    ['a cursor-up status redraw split across chunks', '\x1b7\x1b[1;1H', '✻ Working\x1b8'],
+    [
+      'a status line redrawn below the composer split across chunks',
+      '\x1b7\x1b[6;1H',
+      '✻ Working\x1b8'
+    ]
+  ])(
+    'still pastes a different next prompt over a late repaint after %s',
+    async (_label, chunkOne, chunkTwo) => {
+      vi.useFakeTimers()
+      const { runtime, handle, writes } = await createAgentPromptSubmissionRuntime(
+        (runtime, data) => {
+          const pasted = ['first task', 'second task'].find((text) => data.includes(text))
+          if (pasted) {
+            runtime.onPtyData('pty-prompt', composerFrame(pasted), Date.now())
+          } else if (data === '\r') {
+            runtime.onPtyData('pty-prompt', `\x1b]0;Codex idle\x07${WORKING_TITLE}`, Date.now())
+            // A read between these two chunks cannot see the composer, which still shows the paste.
+            setTimeout(() => runtime.onPtyData('pty-prompt', chunkOne, Date.now()), 300)
+            setTimeout(() => runtime.onPtyData('pty-prompt', chunkTwo, Date.now()), 320)
+            setTimeout(() => runtime.onPtyData('pty-prompt', composerFrame(''), Date.now()), 1_500)
+          }
+        }
+      )
+      runtime.onPtyData('pty-prompt', composerFrame(''), Date.now())
+
+      const first = runtime.sendTerminalAgentPrompt(handle, 'first task', { inputKind: 'driving' })
+      const next = runtime.sendTerminalAgentPrompt(handle, 'second task', { inputKind: 'driving' })
+      const settled = Promise.allSettled([first, next])
+      await vi.runAllTimersAsync()
+      const [firstResult, nextResult] = await settled
+
+      expect({
+        firstResult: firstResult.status,
+        nextReason: nextResult.status === 'rejected' ? String(nextResult.reason?.message) : null,
+        pastes: writes.filter((data) => data.includes(AGENT_PROMPT_BRACKETED_PASTE_END)).length
+      }).toEqual({ firstResult: 'fulfilled', nextReason: null, pastes: 2 })
+    }
+  )
 })

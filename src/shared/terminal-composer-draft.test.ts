@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   detectTerminalComposerDraft,
-  hasTerminalComposerPlaceholder
+  hasTerminalComposerPlaceholder,
+  isTerminalComposerAtCursor
 } from './terminal-composer-draft'
 
 describe('detectTerminalComposerDraft', () => {
@@ -416,5 +417,35 @@ describe('detectTerminalComposerDraft', () => {
         cursorViewportRow: 8
       })
     ).toMatchObject({ text: 'first line', endRow: 8 })
+  })
+
+  it('tells an empty composer at the cursor from a read that cannot see one', () => {
+    const empty = {
+      rows: ['────────', '❯ '],
+      typedRows: ['────────', '❯ '],
+      promptGlyphBoldRows: [false, false],
+      rowsBelow: ['────────'],
+      typedRowsBelow: ['────────'],
+      beforeCursor: '❯ ',
+      afterCursor: '',
+      rawAfterCursor: '',
+      cursorHidden: false,
+      cursorViewportRow: 3
+    }
+
+    expect(detectTerminalComposerDraft(empty)).toBeNull()
+    expect(isTerminalComposerAtCursor(empty)).toBe(true)
+    expect(isTerminalComposerAtCursor({ ...empty, cursorHidden: true })).toBe(false)
+    expect(
+      isTerminalComposerAtCursor({
+        ...empty,
+        rows: [...empty.rows, '────────', ''],
+        typedRows: [...empty.typedRows, '────────', ''],
+        promptGlyphBoldRows: [false, false, false, false],
+        beforeCursor: '',
+        cursorViewportRow: 5
+      })
+    ).toBe(false)
+    expect(isTerminalComposerAtCursor(null)).toBe(false)
   })
 })
