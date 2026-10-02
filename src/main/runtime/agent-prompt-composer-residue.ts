@@ -30,12 +30,7 @@ export function classifyAgentPromptComposerResidue(
   pastePayload: string,
   ownPaste?: AgentPromptOwnPaste | null
 ): AgentPromptComposerResidue {
-  if (!context) {
-    return 'none'
-  }
-  // Why typed text only: a dim suggestion is not input; typing replaces it.
-  const draft = detectTerminalComposerDraft(context, { typedOnly: true })
-  const residue = normalizeComposerText(draft?.text ?? '')
+  const residue = readTypedComposerText(context)
   if (!residue) {
     return 'none'
   }
@@ -48,6 +43,24 @@ export function classifyAgentPromptComposerResidue(
   }
   // Why: the screen drops indentation and line breaks, so only a byte-identical paste is this prompt.
   return ownPaste.payload === pastePayload ? 'same-prompt' : 'foreign'
+}
+
+/** Whether the composer still shows this paste's words; false once it is emptied or holds others. */
+export function composerShowsAgentPromptPaste(
+  context: TerminalCursorContext | null | undefined,
+  payload: string
+): boolean {
+  const residue = readTypedComposerText(context)
+  return residue !== '' && residue === normalizeComposerText(stripPasteFrame(payload))
+}
+
+function readTypedComposerText(context: TerminalCursorContext | null | undefined): string {
+  if (!context) {
+    return ''
+  }
+  // Why typed text only: a dim suggestion is not input; typing replaces it.
+  const draft = detectTerminalComposerDraft(context, { typedOnly: true })
+  return normalizeComposerText(draft?.text ?? '')
 }
 
 function stripPasteFrame(payload: string): string {

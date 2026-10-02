@@ -315,7 +315,7 @@ describe('agent prompt composer residue (#15976)', () => {
     }
   )
 
-  it('refuses a parked prompt when output arrives during the pre-write check', async () => {
+  it('submits a parked prompt when only a title arrives during the pre-write check', async () => {
     vi.useFakeTimers()
     let enters = 0
     const { runtime, handle, writes } = await createAgentPromptSubmissionRuntime(
@@ -347,12 +347,10 @@ describe('agent prompt composer residue (#15976)', () => {
     await vi.runAllTimersAsync()
     const [result] = await settled
 
+    // Why: harmless output leaves the parked prompt in place, so the retry's Enter still belongs to it.
     expect({ result, writes: writes.slice(2) }).toMatchObject({
-      result: {
-        status: 'rejected',
-        reason: expect.objectContaining({ message: 'agent_prompt_composer_not_empty' })
-      },
-      writes: []
+      result: { status: 'fulfilled', value: { accepted: true, bytesWritten: 1 } },
+      writes: ['\r']
     })
   })
 
@@ -542,6 +540,73 @@ describe('agent prompt composer residue (#15976)', () => {
         2
       )
       expect(writes.filter((data) => data === '\r')).toHaveLength(2)
+    }
+  )
+
+  it('still reads its landed prompt as a late repaint while only unrelated output arrives', async () => {
+    vi.useFakeTimers()
+    const { runtime, handle, writes } = await createAgentPromptSubmissionRuntime(
+      (runtime, data) => {
+        if (data.includes('first task')) {
+          runtime.onPtyData('pty-prompt', composerFrame('first task'), Date.now())
+        } else if (data === '\r') {
+          runtime.onPtyData('pty-prompt', `\x1b]0;Codex idle\x07${WORKING_TITLE}`, Date.now())
+          // Output that leaves the stale composer paint as it was.
+          setTimeout(() => runtime.onPtyData('pty-prompt', WORKING_TITLE, Date.now()), 300)
+        }
+      }
+    )
+    runtime.onPtyData('pty-prompt', composerFrame(''), Date.now())
+
+    const first = runtime.sendTerminalAgentPrompt(handle, 'first task', { inputKind: 'driving' })
+    const next = runtime.sendTerminalAgentPrompt(handle, 'second task', { inputKind: 'driving' })
+    await vi.runAllTimersAsync()
+
+    await expect(first).resolves.toMatchObject({ accepted: true })
+    await expect(next).resolves.toMatchObject({ accepted: true })
+    expect(writes.filter((data) => data.includes('second task'))).toHaveLength(1)
+  })
+
+  it.each([
+    ['a different', 'second task'],
+    ['an identical', 'first task']
+  ])(
+    'refuses %s next prompt onto its landed prompt recalled after the composer emptied',
+    async (_label, nextPrompt) => {
+      vi.useFakeTimers()
+      const { runtime, handle, writes } = await createAgentPromptSubmissionRuntime(
+        (runtime, data) => {
+          if (data.includes('first task')) {
+            runtime.onPtyData('pty-prompt', composerFrame('first task'), Date.now())
+          } else if (data === '\r') {
+            runtime.onPtyData('pty-prompt', `\x1b]0;Codex idle\x07${WORKING_TITLE}`, Date.now())
+            // The agent empties its composer as the turn starts.
+            runtime.onPtyData('pty-prompt', composerFrame(''), Date.now())
+          }
+        }
+      )
+      runtime.onPtyData('pty-prompt', composerFrame(''), Date.now())
+
+      const startedAt = Date.now()
+      const first = runtime.sendTerminalAgentPrompt(handle, 'first task', { inputKind: 'driving' })
+      await vi.advanceTimersByTimeAsync(2_000)
+      await expect(first).resolves.toMatchObject({ accepted: true })
+      // Someone recalls the prompt into the emptied composer, still inside the late-repaint window.
+      runtime.onPtyData('pty-prompt', composerFrame('first task'), Date.now())
+      const writesBefore = writes.length
+      const next = runtime.sendTerminalAgentPrompt(handle, nextPrompt, { inputKind: 'driving' })
+      const settled = Promise.allSettled([next])
+      await vi.advanceTimersByTimeAsync(2_000)
+      const [result] = await settled
+
+      expect(Date.now() - startedAt).toBeLessThan(10_000)
+      expect({ result, writes: writes.slice(writesBefore) }).toMatchObject({
+        result: {
+          status: 'rejected',
+          reason: expect.objectContaining({ message: 'agent_prompt_composer_not_empty' })
+        },
+        writes: []
+      })
     }
   )
 })

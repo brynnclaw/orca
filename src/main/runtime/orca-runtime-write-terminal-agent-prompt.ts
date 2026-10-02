@@ -28,9 +28,11 @@ import {
 } from './agent-prompt-submission-verification'
 
 export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithResolveAuthoritativeTerminalWaitPermission {
-  private readonly agentPromptComposerLedger = new AgentPromptComposerLedger()
+  private readonly agentPromptComposerLedger = new AgentPromptComposerLedger((ptyId, onParsed) =>
+    this.watchAgentPromptComposer(ptyId, onParsed)
+  )
 
-  private getJudgeableHeadlessTerminal(ptyId: string) {
+  protected getJudgeableHeadlessTerminal(ptyId: string) {
     const state = this.headlessTerminals.get(ptyId)
     // Why: a provider-restored suffix or a pending hydration is not the whole screen, and doubt
     // never blocks a write.
@@ -148,6 +150,10 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
       assertAgentPromptRequestActive(options.signal)
       this.assertAgentPromptGeneration(ptyId, generation)
       await options.beforeWrite?.(ptyId)
+      // Why: harmless output (a title) can arrive while beforeWrite awaits; judge the screen it left.
+      const parked = promptAlreadyParked
+        ? await this.readAgentPromptComposerResidue(ptyId, generation, pastePayload, options.signal)
+        : null
       assertAgentPromptRequestActive(options.signal)
       this.assertAgentPromptGeneration(ptyId, generation)
       this.assertAgentPromptPermissionSafe(
@@ -156,8 +162,8 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
       )
       // Why: beforeWrite awaited, and Enter alone submits whatever the composer holds by now.
       if (
-        promptAlreadyParked &&
-        !this.isAgentPromptStillParked(ptyId, generation, pastePayload, composer.parsedThrough)
+        parked &&
+        !this.isAgentPromptStillParked(ptyId, generation, pastePayload, parked.parsedThrough)
       ) {
         throw new Error(AGENT_PROMPT_COMPOSER_NOT_EMPTY_ERROR)
       }
