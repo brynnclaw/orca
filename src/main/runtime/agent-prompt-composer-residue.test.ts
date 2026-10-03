@@ -785,7 +785,7 @@ describe('agent prompt composer residue (#15976)', () => {
           if (data.includes('second task')) {
             runtime.onPtyData('pty-prompt', composerFrame('second task'), Date.now())
           } else if (data.includes(AGENT_PROMPT_BRACKETED_PASTE_END)) {
-            // The composer shows the landed prompt with its whitespace collapsed.
+            // The composer still shows the landed prompt, re-wrapped or with its own spacing.
             runtime.onPtyData('pty-prompt', firstFrame, Date.now())
           } else if (data === '\r') {
             runtime.onPtyData('pty-prompt', `\x1b]0;Codex idle\x07${WORKING_TITLE}`, Date.now())
