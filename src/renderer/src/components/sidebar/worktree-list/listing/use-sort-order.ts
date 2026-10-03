@@ -155,7 +155,8 @@ export function useSidebarWorktreeSortOrder(args: {
             state.terminalLayoutsByTabId
           )
         : new Map<string, WorktreeAttention>()
-    // Why: agent turns never bump lastActivityAt, even in the selected workspace.
+    // Why: agent turns do not update lastActivityAt directly; only a terminal bell
+    // can, once per unread cycle.
     const agentActivityByWorktree =
       sortBy === 'smart' || sortBy === 'recent'
         ? buildAgentActivityByWorktree(
