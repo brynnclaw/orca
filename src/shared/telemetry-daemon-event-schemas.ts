@@ -218,7 +218,7 @@ export const profileStateAuthoritySelectedSchema = z
 export const hookInstallAgentSchema = z.enum(AGENT_HOOK_TARGETS)
 export type HookInstallAgent = z.infer<typeof hookInstallAgentSchema>
 
-// Why: config-shape errors (not user content); callers must truncate before `track` — `.max(200)` drops overlength strings.
+// Why: a fixed error category (errno code, `SyntaxError`, or `unknown`), never a raw message (#21492).
 export const agentHookInstallFailedSchema = z
   .object({
     agent: hookInstallAgentSchema,
