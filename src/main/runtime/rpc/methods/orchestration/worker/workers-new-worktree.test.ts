@@ -455,6 +455,36 @@ describe('orchestration new-worktree workers', () => {
     expect(runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
   })
 
+  it('reports a readiness timeout while wait-for-setup is still running as a setup wait', async () => {
+    mockCreatedWorktree({ startupPolicy: 'wait-for-setup', state: 'running' })
+    vi.mocked(runtime.waitForTerminal).mockRejectedValue(new Error('timeout'))
+
+    const { result } = await startWorker({ timeoutMs: 1_000 })
+
+    expect(result).toMatchObject({
+      state: 'failed',
+      failedStage: 'setup_wait',
+      setup: { startupPolicy: 'wait-for-setup', state: 'running' }
+    })
+    const lastError = (result as { lastError: string }).lastError
+    expect(lastError).toContain('Setup was still running after 1000 ms')
+    expect(lastError).toContain('--timeout-ms')
+    expect(runtime.sendTerminalAgentPrompt).not.toHaveBeenCalled()
+  })
+
+  it('keeps a start-immediately readiness timeout at agent readiness', async () => {
+    mockCreatedWorktree({ startupPolicy: 'start-immediately', state: 'running' })
+    vi.mocked(runtime.waitForTerminal).mockRejectedValue(new Error('timeout'))
+
+    const { result } = await startWorker({ timeoutMs: 1_000 })
+
+    expect(result).toMatchObject({
+      state: 'failed',
+      failedStage: 'agent_readiness',
+      lastError: 'timeout'
+    })
+  })
+
   it('distinguishes no-effect failure, unknown acceptance, and durable residual effects', async () => {
     vi.spyOn(runtime, 'createManagedWorktree').mockRejectedValueOnce(
       new Error('repository validation failed before creation')

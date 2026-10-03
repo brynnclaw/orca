@@ -67,3 +67,18 @@ export function persistWorkerSetupWaitOutcome(
     residualResources: residualWorkerEffects(args.effects)
   })
 }
+
+/** Under wait-for-setup the agent cannot become ready before setup exits, so a readiness budget
+ *  that runs out while setup is still running is the setup gate's timeout, not the agent's. */
+export function setupStillRunningAtTimeout(
+  setup: WorkerSetupReceipt,
+  timedOut: boolean,
+  timeoutMs: number
+): Error | null {
+  if (!timedOut || setup.startupPolicy !== 'wait-for-setup' || setup.state !== 'running') {
+    return null
+  }
+  return new Error(
+    `Setup was still running after ${timeoutMs} ms (startup policy wait-for-setup), so the agent could not start. Retry with a larger --timeout-ms.`
+  )
+}
