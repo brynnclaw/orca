@@ -13513,7 +13513,7 @@
             "subagentCountSingular": "1 sous-agent",
             "subagentCountPlural": "{{value0}} sous-agents",
             "delete": "Supprimer",
-            "deleteReasonNonLocalHost": "Seules les sessions de cet appareil peuvent être supprimées.",
+            "deleteReasonRemoteHost": "Cette session se trouve sur {{value0}}. Orca ne peut supprimer que les sessions de cet appareil : copiez le chemin de son journal et supprimez ce journal sur {{value0}}.",
             "deleteReasonSyntheticPath": "Cette session ne peut pas être supprimée depuis Orca.",
             "deleteReasonUnsupportedAgent": "{{value0}} sessions ne peuvent pas être supprimées depuis Orca.",
             "resumeInNewChat": "Reprendre dans une nouvelle discussion"

@@ -3,7 +3,8 @@ import { aiVaultSessionDeleteBlockedReason } from './ai-vault-session-deletabili
 
 // translate() with no loaded catalog returns the English fallback, so these
 // assertions pin the English copy as well as the gate order.
-const NON_LOCAL = 'Only sessions on this device can be deleted.'
+const onHost = (host: string): string =>
+  `This session is on ${host}. Orca can only delete sessions on this device, so copy its log path and delete that log on ${host}.`
 const SYNTHETIC = "This session can't be deleted from Orca."
 
 const localGeminiSession = {
@@ -27,12 +28,24 @@ describe('aiVaultSessionDeleteBlockedReason', () => {
     ).toBeNull()
   })
 
-  it('blocks ssh- and runtime-hosted sessions regardless of agent', () => {
-    for (const executionHostId of ['ssh:dev-box', 'runtime:gpu-box'] as const) {
+  it('blocks ssh- and runtime-hosted sessions regardless of agent, naming the owning host', () => {
+    for (const [executionHostId, host] of [
+      ['ssh:dev-box', 'dev-box'],
+      ['runtime:gpu-box', 'gpu-box']
+    ] as const) {
       expect(aiVaultSessionDeleteBlockedReason({ ...localGeminiSession, executionHostId })).toBe(
-        NON_LOCAL
+        onHost(host)
       )
     }
+  })
+
+  it('names an SSH host whose target id was URI-encoded in the host id', () => {
+    expect(
+      aiVaultSessionDeleteBlockedReason({
+        ...localGeminiSession,
+        executionHostId: 'ssh:ubuntu%40build%20box'
+      })
+    ).toBe(onHost('ubuntu@build box'))
   })
 
   it('blocks a synthetic OpenCode SQLite row identity', () => {
@@ -72,6 +85,6 @@ describe('aiVaultSessionDeleteBlockedReason', () => {
         executionHostId: 'ssh:dev-box',
         filePath: '/home/user/.claude/sessions/sess-dir/log.jsonl'
       })
-    ).toBe(NON_LOCAL)
+    ).toBe(onHost('dev-box'))
   })
 })

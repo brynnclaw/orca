@@ -13676,7 +13676,7 @@
             "subagentCountSingular": "1 subagent",
             "subagentCountPlural": "{{value0}} subagents",
             "delete": "Delete",
-            "deleteReasonNonLocalHost": "Only sessions on this device can be deleted.",
+            "deleteReasonRemoteHost": "This session is on {{value0}}. Orca can only delete sessions on this device, so copy its log path and delete that log on {{value0}}.",
             "deleteReasonSyntheticPath": "This session can't be deleted from Orca.",
             "deleteReasonUnsupportedAgent": "{{value0}} sessions can't be deleted from Orca.",
             "resumeInNewChat": "Resume in New Chat"

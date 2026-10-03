@@ -11725,7 +11725,7 @@
             "subagentCountSingular": "1 subagente",
             "subagentCountPlural": "{{value0}} subagentes",
             "delete": "Eliminar",
-            "deleteReasonNonLocalHost": "Solo se pueden eliminar las sesiones de este dispositivo.",
+            "deleteReasonRemoteHost": "Esta sesión está en {{value0}}. Orca solo puede eliminar sesiones de este dispositivo, así que copia la ruta de su registro y elimina ese registro en {{value0}}.",
             "deleteReasonSyntheticPath": "Esta sesión no se puede eliminar desde Orca.",
             "deleteReasonUnsupportedAgent": "Las sesiones de {{value0}} no se pueden eliminar desde Orca."
           },

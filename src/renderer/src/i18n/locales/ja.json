@@ -13411,7 +13411,7 @@
             "subagentCountSingular": "1 件のサブ Agent",
             "subagentCountPlural": "{{value0}} 件のサブ Agent",
             "delete": "削除",
-            "deleteReasonNonLocalHost": "このデバイス上のセッションのみ削除できます。",
+            "deleteReasonRemoteHost": "このセッションは {{value0}} 上にあります。Orca はこのデバイス上のセッションのみ削除できるため、ログのパスをコピーして {{value0}} 上でそのログを削除してください。",
             "deleteReasonSyntheticPath": "このセッションは Orca では削除できません。",
             "deleteReasonUnsupportedAgent": "{{value0}} のセッションは Orca では削除できません。",
             "resumeInNewChat": "新規チャットで再開"

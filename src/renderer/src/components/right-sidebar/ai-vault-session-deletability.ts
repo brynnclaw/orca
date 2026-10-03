@@ -1,4 +1,5 @@
 import { isAiVaultDeletableAgent } from '../../../../shared/ai-vault-session-deletion'
+import { getExecutionHostLabel } from '../../../../shared/execution-host'
 import type { AiVaultSession } from '../../../../shared/ai-vault-types'
 import { translate } from '@/i18n/i18n'
 import { agentLabel } from './ai-vault-session-filters'
@@ -10,7 +11,10 @@ import {
 /**
  * Why Delete is unavailable for this session, as the tooltip text to show — or
  * null when it is offered. Each message says which sessions are affected, never
- * why: a provider's storage layout is Orca's problem, not the reader's.
+ * why: a provider's storage layout is Orca's problem, not the reader's. A remote
+ * session's message names its host and the way to delete it there (#23556): no
+ * runtime can yet validate a delete target on the owning host, so routing the
+ * delete there would skip main's path checks.
  *
  * NOT the security boundary — main re-validates the path on disk regardless.
  * The two sides agree on deletable-or-not but deliberately not on the order they
@@ -23,8 +27,9 @@ export function aiVaultSessionDeleteBlockedReason(
 ): string | null {
   if (!canUseLocalAiVaultSessionPathActions(session.executionHostId)) {
     return translate(
-      'auto.components.right.sidebar.AiVaultSessionRow.deleteReasonNonLocalHost',
-      'Only sessions on this device can be deleted.'
+      'auto.components.right.sidebar.AiVaultSessionRow.deleteReasonRemoteHost',
+      'This session is on {{value0}}. Orca can only delete sessions on this device, so copy its log path and delete that log on {{value0}}.',
+      { value0: getExecutionHostLabel(session.executionHostId) }
     )
   }
   if (isSyntheticAiVaultSessionPath(session.filePath)) {
