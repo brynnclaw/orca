@@ -115,7 +115,7 @@ describe('groupLinearIssues', () => {
     ])
   })
 
-  it('puts triage first, unknown state types last, and breaks type ties by name', () => {
+  it('puts triage before backlog, unknown state types last, and breaks type ties by name', () => {
     const sections = groupLinearIssues(
       [
         issue({ id: '1', identifier: 'COR-1', state: { name: 'Mystery', type: 'x', color: '#0' } }),
@@ -132,7 +132,12 @@ describe('groupLinearIssues', () => {
         issue({
           id: '4',
           identifier: 'COR-4',
-          state: { name: 'Triage', type: 'triage', color: '#3' }
+          state: { name: 'Backlog', type: 'backlog', color: '#3' }
+        }),
+        issue({
+          id: '5',
+          identifier: 'COR-5',
+          state: { name: 'Triage', type: 'triage', color: '#4' }
         })
       ],
       'status',
@@ -140,6 +145,7 @@ describe('groupLinearIssues', () => {
     )
     expect(sections.map((section) => section.label)).toEqual([
       'Triage',
+      'Backlog',
       'In Progress',
       'Review',
       'Mystery'
