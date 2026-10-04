@@ -98,14 +98,39 @@ describe('bulk Remove from Parent targeting', () => {
   })
 
   it('does not send a worktree-lineage detach to a selected folder workspace', () => {
+    // Why: the folder row carries a stray lineage record, so only the folder guard
+    // (not the unlinked-row skip) keeps it out of the detach.
     expect(
       detachedIds({
         selected: [row('folder:folder-1'), row('repo::child')],
         worktreeLineageById: {
+          'folder:folder-1': worktreeLineage('folder:folder-1', 'repo::parent'),
           'repo::child': worktreeLineage('repo::child', 'repo::parent')
         }
       })
     ).toEqual(['repo::child'])
+  })
+
+  it('detaches a row whose stale worktree link points at itself', () => {
+    expect(
+      detachedIds({
+        selected: [row('repo::self'), row('repo::top')],
+        worktreeLineageById: {
+          'repo::self': worktreeLineage('repo::self', 'repo::self')
+        }
+      })
+    ).toEqual(['repo::self'])
+  })
+
+  it('detaches a row whose stale workspace link points at itself', () => {
+    expect(
+      detachedIds({
+        selected: [row('repo::self'), row('repo::top')],
+        workspaceLineageByChildKey: {
+          'worktree:repo::self': workspaceLineage('repo::self', 'worktree:repo::self')
+        }
+      })
+    ).toEqual(['repo::self'])
   })
 
   it('keeps a worktree attached to a selected folder workspace', () => {
