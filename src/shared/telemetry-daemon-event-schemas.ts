@@ -218,11 +218,18 @@ export const profileStateAuthoritySelectedSchema = z
 export const hookInstallAgentSchema = z.enum(AGENT_HOOK_TARGETS)
 export type HookInstallAgent = z.infer<typeof hookInstallAgentSchema>
 
-// Why: a fixed error category (errno code, `SyntaxError`, or `unknown`), never a raw message (#21492).
+// Node errno codes (`EACCES`, `ENOENT`, ...); anchored so a code carrying a path can't pass.
+export const HOOK_INSTALL_ERRNO_CODE_PATTERN = /^E[A-Z]+$/
+
+// Why (#21492): a fixed error category (errno code, `SyntaxError`, or `unknown`), never a raw
+// message. The schema enforces it too, so a future producer can't leak paths through this field.
 export const agentHookInstallFailedSchema = z
   .object({
     agent: hookInstallAgentSchema,
-    error_message: z.string().max(200)
+    error_message: z.union([
+      z.enum(['SyntaxError', 'unknown']),
+      z.string().max(200).regex(HOOK_INSTALL_ERRNO_CODE_PATTERN)
+    ])
   })
   .strict()
 

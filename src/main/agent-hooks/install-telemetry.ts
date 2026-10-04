@@ -1,14 +1,13 @@
+import { HOOK_INSTALL_ERRNO_CODE_PATTERN } from '../../shared/telemetry-daemon-event-schemas'
 import type { HookInstallAgent } from '../../shared/telemetry-events'
 import { track } from '../telemetry/client'
-
-const ERRNO_CODE_PATTERN = /^E[A-Z]+$/
 
 // Why (#21492): raw messages embed absolute paths under the home directory (and so the OS user
 // name) or echo config contents; only a fixed category may leave the machine.
 function categorizeError(error: unknown): string {
   if (typeof error === 'object' && error !== null) {
     const code = (error as { code?: unknown }).code
-    if (typeof code === 'string' && ERRNO_CODE_PATTERN.test(code)) {
+    if (typeof code === 'string' && HOOK_INSTALL_ERRNO_CODE_PATTERN.test(code)) {
       return code
     }
   }

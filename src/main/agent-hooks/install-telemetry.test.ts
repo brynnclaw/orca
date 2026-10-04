@@ -64,11 +64,16 @@ describe('recordManagedHookInstallFailure', () => {
       'cursor',
       Object.assign(new Error('x'), { code: 'not-an-errno /home/someone' })
     )
+    // An errno-looking prefix must not carry the rest of the code through.
+    recordManagedHookInstallFailure(
+      'cursor',
+      Object.assign(new Error('x'), { code: 'EACCES /home/someone' })
+    )
 
     const messages = trackMock.mock.calls.map(
       ([, props]) => (props as { error_message: string }).error_message
     )
-    expect(messages).toEqual(['unknown', 'unknown', 'unknown'])
+    expect(messages).toEqual(['unknown', 'unknown', 'unknown', 'unknown'])
   })
 
   it('handles non-Error values and telemetry failures', () => {
