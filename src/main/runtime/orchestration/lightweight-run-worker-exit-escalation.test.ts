@@ -6,6 +6,7 @@ import { makePaneKey } from '../../../shared/stable-pane-id'
 import { getDefaultWorkspaceSession } from '../../../shared/constants'
 import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
 import { createRootDispatch } from './db/root-dispatch-test-fixture'
+import { OPERATOR_CLOSE_EXIT_CAUSE } from '../../../shared/terminal-exit-cause'
 
 // STA-4604: failActiveDispatchOnExit fails the dispatch on worker PTY exit but used to
 // gate the "Agent exited unexpectedly" escalation on the legacy coordinator_runs table.
@@ -417,6 +418,33 @@ describe('STA-4604 worker PTY exit escalation reaches the coordinator', () => {
     }
   })
 
+  it('fails the dispatch without escalating when the operator closed the worker', async () => {
+    const { runtime, workerHandle, coordinatorHandle } = makeRuntimeWithTwoPanes()
+    const db = new OrchestrationDb(':memory:')
+    try {
+      const run = db.createRun({
+        objective: 'operator closes the worker',
+        coordinatorHandle,
+        coordinatorPaneKey: COORDINATOR_PANE_KEY
+      })
+      const task = db.createTask({ spec: 'closed on purpose', runId: run.id })
+      const dispatch = createRootDispatch(db, task.id, workerHandle, WORKER_PANE_KEY)
+      runtime.setOrchestrationDb(db as never)
+
+      runtime.onPtyExit(WORKER_PTY_ID, 0, undefined, { cause: OPERATOR_CLOSE_EXIT_CAUSE })
+      await settle()
+
+      // Why: a deliberate close is not a crash the coordinator must be woken for.
+      expect({
+        dispatch: db.getDispatchContextById(dispatch.id)?.status,
+        terminationReason: db.getDispatchContextById(dispatch.id)?.termination_reason,
+        escalations: db.getUnreadRunMailbox(run.id, 100, ['escalation']).length
+      }).toEqual({ dispatch: 'failed', terminationReason: 'operator_close', escalations: 0 })
+    } finally {
+      db.close()
+    }
+  })
+
   it('preserves the dispatch Run when legacy coordinator routing is used', async () => {
     const { runtime, workerHandle, coordinatorHandle } = makeRuntimeWithTwoPanes()
     const insertMessage = vi.fn((message: { to: string }) => ({
@@ -530,10 +558,13 @@ describe('#21644 worker agent exit inside a live shell', () => {
     presence: 'exited' | 'unverifiable' | null
     foreground: string | null
     stoppingInThisRuntime?: boolean
+    // Which runtime map knows the worker handle; both do by default.
+    boundTo?: 'leaf-only' | 'pty-only'
   }): Promise<{
     agentExitedFacts: number
     foregroundReads: number
     dispatchStatus: string | undefined
+    terminationReason: string | null | undefined
     workerState: string | undefined
     escalations: Record<string, unknown>[]
     workerHandle: string
@@ -549,6 +580,15 @@ describe('#21644 worker agent exit inside a live shell', () => {
       } as never,
       getForegroundProcess
     })
+    const internals = runtime as unknown as {
+      handleByLeafKey: Map<string, string>
+      handleByPtyId: Map<string, string>
+    }
+    if (scenario.boundTo === 'leaf-only') {
+      expect(internals.handleByPtyId.delete(WORKER_PTY_ID)).toBe(true)
+    } else if (scenario.boundTo === 'pty-only') {
+      expect(internals.handleByLeafKey.delete(`tab-worker::${WORKER_LEAF_ID}`)).toBe(true)
+    }
     const db = new OrchestrationDb(':memory:')
     try {
       const run = db.createRun({
@@ -594,6 +634,7 @@ describe('#21644 worker agent exit inside a live shell', () => {
         agentExitedFacts: facts.filter((fact) => fact.kind === 'agent-exited').length,
         foregroundReads: getForegroundProcess.mock.calls.length,
         dispatchStatus: db.getDispatchContextById(started.dispatch.id)?.status,
+        terminationReason: db.getDispatchContextById(started.dispatch.id)?.termination_reason,
         workerState: db.getWorkerDispatch(started.dispatch.id)?.state,
         escalations: db.getUnreadRunMailbox(run.id, 100, ['escalation']).map((message) => ({
           from: message.from_handle,
@@ -617,6 +658,8 @@ describe('#21644 worker agent exit inside a live shell', () => {
     expect(graded).toMatchObject({
       agentExitedFacts: 1,
       dispatchStatus: 'failed',
+      // Why: the terminal is still alive, so the attempt must not read as a certified exit.
+      terminationReason: 'unknown',
       workerState: 'failed'
     })
     expect(graded.escalations).toEqual([
@@ -662,6 +705,36 @@ describe('#21644 worker agent exit inside a live shell', () => {
       escalations: []
     })
   })
+
+  // Why: with an unverifiable verdict, keepOnSilence decides before the `answered` guard;
+  // only a pane with no hook owner reaches that guard with a silent read.
+  it('leaves the Dispatch alone when there is no hook owner and the foreground read is silent', async () => {
+    const graded = await gradeAgentExitInLiveShell({ presence: null, foreground: null })
+    expect(graded.foregroundReads).toBeGreaterThan(0)
+    expect(graded).toMatchObject({
+      dispatchStatus: 'dispatched',
+      workerState: 'ready',
+      escalations: []
+    })
+  })
+
+  it.each(['leaf-only', 'pty-only'] as const)(
+    'fails the Dispatch when the worker handle is bound %s',
+    async (boundTo) => {
+      const graded = await gradeAgentExitInLiveShell({
+        presence: 'exited',
+        foreground: 'bash',
+        boundTo
+      })
+      expect(graded).toMatchObject({ dispatchStatus: 'failed', workerState: 'failed' })
+      expect(graded.escalations).toEqual([
+        expect.objectContaining({
+          from: graded.workerHandle,
+          subject: 'Agent exited unexpectedly (Agent process exited; shell still running)'
+        })
+      ])
+    }
+  )
 
   it('leaves a stop begun by this runtime to own the outcome', async () => {
     const graded = await gradeAgentExitInLiveShell({
