@@ -44,17 +44,22 @@ function makeStore() {
   }
 }
 
-function makeRuntimeWithTwoPanes(): {
+function makeRuntimeWithTwoPanes(
+  options: {
+    deps?: ConstructorParameters<typeof OrcaRuntimeService>[2]
+    getForegroundProcess?: () => Promise<string | null>
+  } = {}
+): {
   runtime: OrcaRuntimeService
   workerHandle: string
   coordinatorHandle: string
 } {
-  const runtime = new OrcaRuntimeService(makeStore() as never)
+  const runtime = new OrcaRuntimeService(makeStore() as never, undefined, options.deps)
   runtime.setPtyController({
     spawn: vi.fn(async () => ({ id: 'never' })),
     write: vi.fn(() => true),
     kill: () => true,
-    getForegroundProcess: async () => null,
+    getForegroundProcess: options.getForegroundProcess ?? (async () => null),
     listProcesses: vi.fn(async () => [])
   } as never)
   const workerHandle = runtime.preAllocateHandleForPty(WORKER_PTY_ID)
@@ -515,5 +520,160 @@ describe('STA-4604 worker PTY exit escalation reaches the coordinator', () => {
       expect.objectContaining({ dispatchId: 'ctx-1', runId: 'run-1' })
     )
     warn.mockRestore()
+  })
+})
+
+// #21644: an agent (e.g. `claude`) that dies while its shell keeps the PTY open never
+// produced a PTY exit, so the Dispatch stayed `dispatched` and the coordinator was never told.
+describe('#21644 worker agent exit inside a live shell', () => {
+  async function gradeAgentExitInLiveShell(scenario: {
+    presence: 'exited' | 'unverifiable' | null
+    foreground: string | null
+    stoppingInThisRuntime?: boolean
+  }): Promise<{
+    agentExitedFacts: number
+    foregroundReads: number
+    dispatchStatus: string | undefined
+    workerState: string | undefined
+    escalations: Record<string, unknown>[]
+    workerHandle: string
+    runId: string
+    taskId: string
+  }> {
+    const facts: { kind: string }[] = []
+    const getForegroundProcess = vi.fn(async () => scenario.foreground)
+    const { runtime, workerHandle, coordinatorHandle } = makeRuntimeWithTwoPanes({
+      deps: {
+        onTerminalSideEffects: (batch: { facts: { kind: string }[] }) => facts.push(...batch.facts),
+        checkHookAgentPresence: async () => scenario.presence
+      } as never,
+      getForegroundProcess
+    })
+    const db = new OrchestrationDb(':memory:')
+    try {
+      const run = db.createRun({
+        objective: '#21644 agent exit in a live shell',
+        coordinatorHandle,
+        coordinatorPaneKey: COORDINATOR_PANE_KEY
+      })
+      const task = db.createTask({ spec: 'do the work', runId: run.id })
+      const started = db.createStartingWorkerDispatch({
+        creator: { kind: 'system' },
+        maxDepth: Number.MAX_SAFE_INTEGER,
+        taskId: task.id,
+        startOptions: {}
+      })
+      db.prepareStartingWorkerAuthority({
+        dispatchId: started.dispatch.id,
+        handle: workerHandle,
+        paneKey: WORKER_PANE_KEY,
+        processIncarnation: 'inc-1',
+        worktreeId: WORKTREE_ID,
+        effects: [],
+        setupState: 'skipped'
+      })
+      db.markWorkerDispatchReady(started.dispatch.id)
+      if (scenario.stoppingInThisRuntime) {
+        db.beginWorkerStop(started.dispatch.id, runtime.getRuntimeId())
+      }
+      runtime.setOrchestrationDb(db as never)
+
+      // The agent is running, then its title falls back to the shell's cwd: the PTY stays open.
+      runtime.ingestSyntheticTitleFrame(WORKER_PTY_ID, '\x1b]0;Codex ready\x07')
+      runtime.onPtyData(WORKER_PTY_ID, '\x1b]0;~/repo\x07', 100)
+
+      await vi.waitFor(() =>
+        expect(
+          facts.some((fact) => fact.kind === 'agent-exited') ||
+            getForegroundProcess.mock.calls.length > 0
+        ).toBe(true)
+      )
+      await new Promise((resolve) => setTimeout(resolve, 50))
+
+      return {
+        agentExitedFacts: facts.filter((fact) => fact.kind === 'agent-exited').length,
+        foregroundReads: getForegroundProcess.mock.calls.length,
+        dispatchStatus: db.getDispatchContextById(started.dispatch.id)?.status,
+        workerState: db.getWorkerDispatch(started.dispatch.id)?.state,
+        escalations: db.getUnreadRunMailbox(run.id, 100, ['escalation']).map((message) => ({
+          from: message.from_handle,
+          to: message.to_handle,
+          type: message.type,
+          priority: message.priority,
+          subject: message.subject,
+          payload: JSON.parse(message.payload ?? 'null')
+        })),
+        workerHandle,
+        runId: run.id,
+        taskId: task.id
+      }
+    } finally {
+      db.close()
+    }
+  }
+
+  it('fails the Dispatch and escalates when hook presence confirms the agent exited', async () => {
+    const graded = await gradeAgentExitInLiveShell({ presence: 'exited', foreground: 'bash' })
+    expect(graded).toMatchObject({
+      agentExitedFacts: 1,
+      dispatchStatus: 'failed',
+      workerState: 'failed'
+    })
+    expect(graded.escalations).toEqual([
+      {
+        from: graded.workerHandle,
+        to: `run:${graded.runId}`,
+        type: 'escalation',
+        priority: 'high',
+        subject: 'Agent exited unexpectedly (Agent process exited; shell still running)',
+        payload: {
+          taskId: graded.taskId,
+          dispatchId: expect.any(String),
+          shellStillRunning: true,
+          handle: graded.workerHandle
+        }
+      }
+    ])
+  })
+
+  it('fails the Dispatch and escalates when the foreground read answers with the shell', async () => {
+    const graded = await gradeAgentExitInLiveShell({ presence: null, foreground: 'bash' })
+    expect(graded).toMatchObject({
+      agentExitedFacts: 1,
+      dispatchStatus: 'failed',
+      workerState: 'failed'
+    })
+    expect(graded.escalations).toEqual([
+      expect.objectContaining({
+        to: `run:${graded.runId}`,
+        subject: 'Agent exited unexpectedly (Agent process exited; shell still running)'
+      })
+    ])
+  })
+
+  it('leaves the Dispatch alone when presence is unverifiable and the foreground read is silent', async () => {
+    const graded = await gradeAgentExitInLiveShell({ presence: 'unverifiable', foreground: null })
+    // Why: the read must have run, or this case would pass without reaching the decision.
+    expect(graded.foregroundReads).toBeGreaterThan(0)
+    expect(graded).toMatchObject({
+      agentExitedFacts: 0,
+      dispatchStatus: 'dispatched',
+      workerState: 'ready',
+      escalations: []
+    })
+  })
+
+  it('leaves a stop begun by this runtime to own the outcome', async () => {
+    const graded = await gradeAgentExitInLiveShell({
+      presence: 'exited',
+      foreground: 'bash',
+      stoppingInThisRuntime: true
+    })
+    expect(graded).toMatchObject({
+      agentExitedFacts: 1,
+      dispatchStatus: 'dispatched',
+      workerState: 'stopping',
+      escalations: []
+    })
   })
 })
