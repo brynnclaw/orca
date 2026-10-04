@@ -152,6 +152,39 @@ describe('the notice a full operation ledger gives', () => {
     }
   })
 
+  it('names tomorrow for a return in the last minute of today, which rounds up to midnight', () => {
+    const midnight = new Date(2026, 9, 5, 0, 0).getTime()
+    // 11:59:30 PM today is shown as 12:00 AM, which is tomorrow, not the midnight just past.
+    expect(
+      agentSessionRefusalNotice(capacityRefusal(new Date(2026, 9, 4, 23, 59, 30).getTime()), 'send')
+    ).toBe(`${WITHOUT_TIME} Orca can take new requests again tomorrow at ${clockTime(midnight)}.`)
+  })
+
+  it("compares the reader's local days, not UTC days", () => {
+    // Pinned here because CI runs in UTC, where both agree.
+    const runnerZone = process.env.TZ
+    try {
+      for (const zone of ['Pacific/Kiritimati', 'Pacific/Honolulu']) {
+        process.env.TZ = zone
+        const now = new Date(2026, 9, 4, 16, 0).getTime()
+        vi.setSystemTime(now)
+        const tomorrowMorning = new Date(2026, 9, 5, 9, 0).getTime()
+        // In both zones 9:00 AM tomorrow falls on the same UTC date as 4:00 PM today.
+        expect(new Date(tomorrowMorning).getUTCDate()).toBe(new Date(now).getUTCDate())
+
+        expect(agentSessionRefusalNotice(capacityRefusal(tomorrowMorning), 'send')).toBe(
+          `${WITHOUT_TIME} Orca can take new requests again tomorrow at ${clockTime(tomorrowMorning)}.`
+        )
+      }
+    } finally {
+      if (runnerZone === undefined) {
+        delete process.env.TZ
+      } else {
+        process.env.TZ = runnerZone
+      }
+    }
+  })
+
   it('keeps the words it had when a refusal carries no time', () => {
     expect(
       agentSessionRefusalNotice(
