@@ -22,7 +22,8 @@ import {
   persistGatedSetupSpawnFailure,
   persistWorkerReadinessStage,
   persistWorkerSetupWaitOutcome,
-  setupStillRunningAtTimeout
+  setupErrorAtReadinessTimeout,
+  setupStillRunningError
 } from './worker-setup-gate'
 import { failWorkerStartWithReceipt } from './worker-start-receipt'
 import { parseTaskDeps } from './task-deps-argument'
@@ -204,11 +205,19 @@ export async function startLocalWorker(args: {
     // gap and no terminal title to read an idle edge from. Only the repo's wait-for-setup policy
     // still holds it back, and that gate has to be waited on explicitly here.
     const readinessTimeoutMs = params.timeoutMs ?? 60_000
-    const failIfSetupStillRunning = (timedOut: boolean): void => {
-      const setupTimeout = setupStillRunningAtTimeout(setupReceipt, timedOut, readinessTimeoutMs)
-      if (setupTimeout) {
+    // Under wait-for-setup a readiness timeout may be setup's, not the agent's. The structured
+    // gate's timeout is its own setup-completion race; a terminal one asks the setup terminal.
+    const failIfSetupBlockedAgent = async (): Promise<void> => {
+      const setupError = structuredSession
+        ? setupStillRunningError(readinessTimeoutMs)
+        : await setupErrorAtReadinessTimeout({
+            ...setupStage,
+            runtime,
+            timeoutMs: readinessTimeoutMs
+          })
+      if (setupError) {
         failedStage = 'setup_wait'
-        throw setupTimeout
+        throw setupError
       }
     }
     let wait:
@@ -229,7 +238,9 @@ export async function startLocalWorker(args: {
           })
     } catch (error) {
       // A terminal readiness wait rejects with 'timeout' rather than returning a status.
-      failIfSetupStillRunning(error instanceof Error && error.message === 'timeout')
+      if (error instanceof Error && error.message === 'timeout') {
+        await failIfSetupBlockedAgent()
+      }
       throw error
     }
     if (wait) {
@@ -238,7 +249,9 @@ export async function startLocalWorker(args: {
         if (setupReceipt.state === 'failed') {
           failedStage = 'setup_wait'
         }
-        failIfSetupStillRunning(wait.status === 'timeout')
+        if (wait.status === 'timeout') {
+          await failIfSetupBlockedAgent()
+        }
         throw new Error(
           wait.blockedReason
             ? `Agent startup blocked: ${describeTerminalWaitBlockedReason(wait.blockedReason)}`
