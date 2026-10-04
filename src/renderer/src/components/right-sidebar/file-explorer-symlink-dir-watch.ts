@@ -41,9 +41,10 @@ export function adoptSymlinkDirWatchPayload(
 
 /**
  * Why: the worktree's recursive watch does not descend into a symlinked folder (inotify is armed
- * with IN_DONT_FOLLOW, FSEvents reports the target's path), so files created inside it never
- * reached the explorer. Each expanded symlinked folder gets its own watch; main resolves the link
- * and reports events under the link path (watcher-event-root-path-rewrite.ts).
+ * with IN_DONT_FOLLOW; an FSEvents stream covers only the real path it was created on), so files
+ * created inside it never reached the explorer. Each expanded symlinked folder gets its own watch;
+ * main resolves the link and reports events under the link path
+ * (watcher-event-root-path-rewrite.ts).
  * Local only: SSH and runtime hosts keep their existing single watch.
  */
 export function useFileExplorerSymlinkDirWatch(args: {

@@ -43,8 +43,9 @@ function dirNode(name: string, isSymlink: boolean): TreeNode {
 }
 
 const dirCache: Record<string, DirCache> = {
-  '/repo': { children: [dirNode('linked', true), dirNode('src', false)] },
+  '/repo': { children: [dirNode('linked', true), dirNode('other', true), dirNode('src', false)] },
   '/repo/linked': { children: [] },
+  '/repo/other': { children: [] },
   '/repo/src': { children: [] }
 }
 
@@ -130,6 +131,18 @@ describe('useFileExplorerWatch symlinked directories (#24285)', () => {
     expect(watchWorktree).toHaveBeenCalledTimes(2)
     hook.unmount()
     expect(unwatchWorktree).toHaveBeenCalledTimes(2)
+  })
+
+  it('watches each symlinked folder once while another one is expanded or collapsed', () => {
+    const hook = renderWatch(new Set(['/repo/linked']))
+    hook.rerender({ expandedDirs: new Set(['/repo/linked', '/repo/other']) })
+    hook.rerender({ expandedDirs: new Set(['/repo/linked']) })
+
+    expect(watchWorktree.mock.calls.map(([args]) => args.worktreePath)).toEqual([
+      '/repo/linked',
+      '/repo/other'
+    ])
+    expect(unwatchWorktree.mock.calls.map(([args]) => args.worktreePath)).toEqual(['/repo/other'])
   })
 
   it('adds no watch for regular folders, which the worktree watch already covers', () => {

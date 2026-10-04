@@ -78,7 +78,7 @@ export function getFileExplorerWatchRuntimeEnvironmentId(
 /**
  * Reconciles File Explorer state on filesystem events for the active worktree.
  *
- * Why: `useEditorExternalWatch` owns the watch IPC lifecycle; this hook only subscribes to fs:changed for tree-cache reconciliation.
+ * Why: `useEditorExternalWatch` owns the worktree's watch IPC lifecycle; this hook subscribes to fs:changed for tree-cache reconciliation and, through `useFileExplorerSymlinkDirWatch`, watches expanded symlinked folders the worktree watch does not reach.
  */
 export function useFileExplorerWatch({
   worktreePath,
