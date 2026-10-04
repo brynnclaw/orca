@@ -10,6 +10,7 @@ import type {
   AgentSessionFailureSurface,
   AgentSessionFailureWordsContext
 } from './agent-session-failure-words'
+import type { AgentSessionWriteKind } from './agent-session-write-failure'
 
 /** Every sentence a notice is made of. Desktop translates each whole sentence with this as its
  *  fallback; mobile shows it as is. */
@@ -71,7 +72,44 @@ export const AGENT_SESSION_WRITE_NOTICE_COPY = {
   tryAgain: 'Try again.'
 } as const
 
+/** Not a fixed sentence: it names the time, read from the refusal when it is shown. */
+export const AGENT_SESSION_CAPACITY_RETURNS_COPY = 'Orca can take new requests again at {{time}}.'
+
+/** Rounded up, so the minute shown is never before a request would be admitted. */
+export function agentSessionCapacityReturnsTime(at: number): string {
+  const minute = 60_000
+  return new Date(Math.ceil(at / minute) * minute).toLocaleTimeString(undefined, {
+    hour: 'numeric',
+    minute: '2-digit'
+  })
+}
+
+export function agentSessionCapacityReturnsEnglish(at: number): string {
+  return AGENT_SESSION_CAPACITY_RETURNS_COPY.replace(
+    '{{time}}',
+    agentSessionCapacityReturnsTime(at)
+  )
+}
+
 export type AgentSessionWriteNoticeSentence = keyof typeof AGENT_SESSION_WRITE_NOTICE_COPY
+
+/** That the write did not happen, by what was being written. */
+export const AGENT_SESSION_WRITE_NOT_DONE: Record<
+  AgentSessionWriteKind,
+  AgentSessionWriteNoticeSentence
+> = {
+  'read-history': 'notDoneReadHistory',
+  send: 'notDoneSend',
+  'composer-send': 'notDoneSend',
+  stop: 'notDoneStop',
+  'stop-task': 'notDoneStopTask',
+  'stop-tasks': 'notDoneStopTasks',
+  answer: 'notDoneAnswer',
+  option: 'notDoneOption',
+  command: 'notDoneCommand',
+  goal: 'notDoneGoal'
+}
+
 /** A failure fact, worded where it is shown so desktop can say it in the reader's language. */
 export type AgentSessionWriteNoticeFailurePart = {
   failure: AgentSessionFailureFact
@@ -83,6 +121,8 @@ export type AgentSessionWriteNoticeFailurePart = {
 export type AgentSessionWriteNoticePart =
   | AgentSessionWriteNoticeSentence
   | { text: string }
+  /** When a full operation ledger takes new requests again, in epoch ms. */
+  | { capacityReturnsAt: number }
   | AgentSessionWriteNoticeFailurePart
 
 /** Causes that already say the history can't be read here, so no sentence after them says it

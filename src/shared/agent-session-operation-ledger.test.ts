@@ -114,19 +114,48 @@ describe('operation admission', () => {
 
   it('refuses new ids at the per-client and global caps rather than evicting tombstones', () => {
     const rows = new Map<string, AgentSessionOperationRow>()
-    admit(rows, { operationId: operationId(NOW, 'b'.repeat(32)) })
+    const held = admit(rows, { operationId: operationId(NOW, 'b'.repeat(32)) })
     expect(evaluate(rows, { perClientLimit: 1 })).toEqual({
       decision: 'refused',
       code: 'agent_session_operation_capacity',
-      details: { reason: 'operationCapacity' }
+      details: { reason: 'operationCapacity', capacityReturnsAt: held.expiresAt }
     })
     // A different caller is still refused once the global cap is reached.
     expect(evaluate(rows, { callerKey: 'client-2', globalLimit: 1 })).toEqual({
       decision: 'refused',
       code: 'agent_session_operation_capacity',
-      details: { reason: 'operationCapacity' }
+      details: { reason: 'operationCapacity', capacityReturnsAt: held.expiresAt }
     })
     expect(evaluate(rows, { callerKey: 'client-2', perClientLimit: 1 }).decision).toBe('admit')
+  })
+
+  it('says capacity returns when the oldest counted row expires, and admits from then', () => {
+    const HOUR = 60 * 60 * 1000
+    const rows = new Map<string, AgentSessionOperationRow>()
+    const oldest = admit(rows, {
+      operationId: operationId(NOW - 2 * HOUR, 'b'.repeat(32)),
+      now: NOW - 2 * HOUR
+    })
+    const newest = admit(rows, {
+      operationId: operationId(NOW - HOUR, 'c'.repeat(32)),
+      now: NOW - HOUR
+    })
+    expect(oldest.expiresAt).toBeLessThan(newest.expiresAt)
+    for (const limits of [{ perClientLimit: 2 }, { callerKey: 'client-2', globalLimit: 2 }]) {
+      expect(evaluate(rows, limits)).toEqual({
+        decision: 'refused',
+        code: 'agent_session_operation_capacity',
+        details: { reason: 'operationCapacity', capacityReturnsAt: oldest.expiresAt }
+      })
+    }
+    const later = oldest.expiresAt
+    expect(
+      evaluate(pruneAgentSessionOperationRows(rows, later), {
+        perClientLimit: 2,
+        now: later,
+        operationId: operationId(later)
+      }).decision
+    ).toBe('admit')
   })
 })
 

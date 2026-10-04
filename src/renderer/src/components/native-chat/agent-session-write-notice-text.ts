@@ -5,7 +5,9 @@ import { translate } from '@/i18n/i18n'
 import { agentSessionFailureSentence } from '../../../../shared/agent-session-failure-words'
 import { agentSessionWriteNoticeParts } from '../../../../shared/agent-session-refusal-notice'
 import {
+  AGENT_SESSION_CAPACITY_RETURNS_COPY,
   AGENT_SESSION_WRITE_NOTICE_COPY as COPY,
+  agentSessionCapacityReturnsTime,
   type AgentSessionWriteNoticePart,
   type AgentSessionWriteNoticeSentence
 } from '../../../../shared/agent-session-write-notice-copy'
@@ -135,12 +137,18 @@ export function agentSessionWriteNoticeText(parts: readonly AgentSessionWriteNot
         ? SENTENCES[part]()
         : 'text' in part
           ? part.text
-          : agentSessionFailureSentence(
-              part.failure,
-              part.surface,
-              part.context,
-              sayAgentSessionFailureTranslated
-            )
+          : 'capacityReturnsAt' in part
+            ? translate(
+                'components.native-chat.capacityReturnsAt',
+                AGENT_SESSION_CAPACITY_RETURNS_COPY,
+                { time: agentSessionCapacityReturnsTime(part.capacityReturnsAt) }
+              )
+            : agentSessionFailureSentence(
+                part.failure,
+                part.surface,
+                part.context,
+                sayAgentSessionFailureTranslated
+              )
     )
   )
 }
