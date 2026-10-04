@@ -157,6 +157,37 @@ describe('operation admission', () => {
       }).decision
     ).toBe('admit')
   })
+
+  it('says capacity returns when enough rows expire to get under a cap the ledger is over', () => {
+    // Rows a build with a larger cap admitted, read by one with a smaller cap.
+    const HOUR = 60 * 60 * 1000
+    const rows = new Map<string, AgentSessionOperationRow>()
+    const [oldest, middle] = [3, 2, 1].map((hoursAgo, index) =>
+      admit(rows, {
+        operationId: operationId(NOW - hoursAgo * HOUR, 'bcd'[index].repeat(32)),
+        now: NOW - hoursAgo * HOUR
+      })
+    )
+    for (const limits of [{ perClientLimit: 2 }, { callerKey: 'client-2', globalLimit: 2 }]) {
+      expect(evaluate(rows, limits)).toEqual({
+        decision: 'refused',
+        code: 'agent_session_operation_capacity',
+        details: { reason: 'operationCapacity', capacityReturnsAt: middle.expiresAt }
+      })
+    }
+    for (const [at, decision] of [
+      [oldest.expiresAt, 'refused'],
+      [middle.expiresAt, 'admit']
+    ] as const) {
+      expect(
+        evaluate(pruneAgentSessionOperationRows(rows, at), {
+          perClientLimit: 2,
+          now: at,
+          operationId: operationId(at)
+        }).decision
+      ).toBe(decision)
+    }
+  })
 })
 
 describe('retention', () => {

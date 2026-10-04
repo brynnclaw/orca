@@ -305,7 +305,8 @@ export function agentSessionWriteNoticeParts(
     // would likely be refused again.
     case 'agent_session_operation_capacity': {
       const capacityReturnsAt = failure.details?.capacityReturnsAt
-      return capacityReturnsAt === undefined
+      // A saved refusal can be shown again after that time, when naming it no longer helps.
+      return capacityReturnsAt === undefined || capacityReturnsAt <= Date.now()
         ? ['capacity', notDone]
         : ['capacity', notDone, { capacityReturnsAt }]
     }

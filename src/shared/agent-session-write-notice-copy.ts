@@ -72,23 +72,53 @@ export const AGENT_SESSION_WRITE_NOTICE_COPY = {
   tryAgain: 'Try again.'
 } as const
 
-/** Not a fixed sentence: it names the time, read from the refusal when it is shown. */
-export const AGENT_SESSION_CAPACITY_RETURNS_COPY = 'Orca can take new requests again at {{time}}.'
+/** Not fixed sentences: each names the time, read from the refusal when it is shown. The return
+ *  can be up to a day away, so a bare clock time could read as one already past today. */
+export const AGENT_SESSION_CAPACITY_RETURNS_COPY = {
+  capacityReturnsAt: 'Orca can take new requests again at {{time}}.',
+  capacityReturnsTomorrowAt: 'Orca can take new requests again tomorrow at {{time}}.',
+  capacityReturnsOnDayAt: 'Orca can take new requests again on {{day}} at {{time}}.'
+} as const
 
-/** Rounded up, so the minute shown is never before a request would be admitted. */
-export function agentSessionCapacityReturnsTime(at: number): string {
+export type AgentSessionCapacityReturnsSentence = keyof typeof AGENT_SESSION_CAPACITY_RETURNS_COPY
+
+function localDayNumber(date: Date): number {
+  return Math.round(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()) / 86_400_000)
+}
+
+/** Rounded up, so the minute shown is never before a request would be admitted; the day is named
+ *  whenever it is not the reader's today. */
+export function agentSessionCapacityReturns(at: number): {
+  sentence: AgentSessionCapacityReturnsSentence
+  time: string
+  day: string
+} {
   const minute = 60_000
-  return new Date(Math.ceil(at / minute) * minute).toLocaleTimeString(undefined, {
-    hour: 'numeric',
-    minute: '2-digit'
+  const shown = new Date(Math.ceil(at / minute) * minute)
+  const time = shown.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  const days = localDayNumber(shown) - localDayNumber(new Date())
+  const day = shown.toLocaleDateString(undefined, {
+    weekday: 'long',
+    month: 'short',
+    day: 'numeric'
   })
+  return {
+    sentence:
+      days === 0
+        ? 'capacityReturnsAt'
+        : days === 1
+          ? 'capacityReturnsTomorrowAt'
+          : 'capacityReturnsOnDayAt',
+    time,
+    day
+  }
 }
 
 export function agentSessionCapacityReturnsEnglish(at: number): string {
-  return AGENT_SESSION_CAPACITY_RETURNS_COPY.replace(
-    '{{time}}',
-    agentSessionCapacityReturnsTime(at)
-  )
+  const { sentence, time, day } = agentSessionCapacityReturns(at)
+  return AGENT_SESSION_CAPACITY_RETURNS_COPY[sentence]
+    .replace('{{day}}', day)
+    .replace('{{time}}', time)
 }
 
 export type AgentSessionWriteNoticeSentence = keyof typeof AGENT_SESSION_WRITE_NOTICE_COPY
