@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -13,14 +13,31 @@ import {
   updateEnvironmentFromPairingCode
 } from './runtime-environment-store'
 
-function pairingCode(endpoint = 'ws://127.0.0.1:6768', pairedDeviceId?: string): string {
+function pairingCode(
+  endpoint = 'ws://127.0.0.1:6768',
+  pairedDeviceId?: string,
+  publicKeyB64 = Buffer.from(new Uint8Array(32).fill(1)).toString('base64')
+): string {
   return encodePairingOffer({
     v: 2,
     endpoint,
     deviceToken: 'device-token',
-    publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64'),
+    publicKeyB64,
     ...(pairedDeviceId ? { pairedDeviceId } : {})
   })
+}
+
+// Why the literal name: it is the file this host's runtime server keeps its
+// E2EE identity in, so a self-pairing check must read exactly this file.
+function writeLocalRuntimeKeypair(userDataPath: string, fill: number): void {
+  writeFileSync(
+    join(userDataPath, 'orca-e2ee-keypair.json'),
+    JSON.stringify({
+      v: 1,
+      publicKeyB64: Buffer.from(new Uint8Array(32).fill(fill)).toString('base64'),
+      secretKeyB64: 'unused'
+    })
+  )
 }
 
 describe('runtime environment store', () => {
@@ -57,6 +74,97 @@ describe('runtime environment store', () => {
       })
     ).toThrow(RuntimeEnvironmentStoreError)
     expect(listEnvironments(userDataPath)).toEqual([first])
+  })
+
+  it('rejects a pairing code for the local runtime without saving it', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    writeLocalRuntimeKeypair(userDataPath, 1)
+
+    // Why a LAN endpoint: the server identity, not the address, marks a self-pair.
+    let thrown: unknown
+    try {
+      addEnvironmentFromPairingCode(userDataPath, {
+        name: 'this server',
+        pairingCode: pairingCode('ws://192.0.2.10:6768')
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(RuntimeEnvironmentStoreError)
+    expect(thrown).toMatchObject({
+      code: 'invalid_argument',
+      message: 'This pairing code belongs to this Orca server. Add a different remote server.'
+    })
+    expect(existsSync(getEnvironmentStorePath(userDataPath))).toBe(false)
+  })
+
+  it('rejects the local runtime key even when the offer encodes it as unpadded base64url', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    writeLocalRuntimeKeypair(userDataPath, 0xfb)
+    const base64urlKey = Buffer.from(new Uint8Array(32).fill(0xfb)).toString('base64url')
+
+    expect(() =>
+      addEnvironmentFromPairingCode(userDataPath, {
+        name: 'this server',
+        pairingCode: pairingCode('ws://192.0.2.10:6768', undefined, base64urlKey)
+      })
+    ).toThrow('This pairing code belongs to this Orca server.')
+    expect(existsSync(getEnvironmentStorePath(userDataPath))).toBe(false)
+  })
+
+  it('rejects re-pairing a saved server with the local runtime pairing code', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    writeLocalRuntimeKeypair(userDataPath, 2)
+    const environment = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'dev box',
+      pairingCode: pairingCode('ws://192.0.2.10:6768')
+    })
+    writeLocalRuntimeKeypair(userDataPath, 1)
+
+    expect(() =>
+      updateEnvironmentFromPairingCode(userDataPath, environment.id, {
+        pairingCode: pairingCode('ws://192.0.2.11:6768')
+      })
+    ).toThrow('This pairing code belongs to this Orca server.')
+    expect(listEnvironments(userDataPath)).toEqual([environment])
+  })
+
+  it('still pairs a different server reached through a loopback SSH forward', () => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    writeLocalRuntimeKeypair(userDataPath, 9)
+
+    const environment = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'forwarded server',
+      pairingCode: pairingCode('ws://127.0.0.1:6768'),
+      connectionDependency: 'ssh-tunnel'
+    })
+
+    expect(listEnvironments(userDataPath)).toEqual([environment])
+  })
+
+  it.each([
+    ['no local runtime keypair exists yet', null],
+    ['the local runtime keypair is malformed', 'not json']
+  ])('still pairs when %s', (_label, keypairContents) => {
+    const userDataPath = mkdtempSync(join(tmpdir(), 'orca-runtime-env-store-'))
+    tempDirs.push(userDataPath)
+    if (keypairContents !== null) {
+      writeFileSync(join(userDataPath, 'orca-e2ee-keypair.json'), keypairContents)
+    }
+
+    const environment = addEnvironmentFromPairingCode(userDataPath, {
+      name: 'workstation',
+      pairingCode: pairingCode()
+    })
+
+    expect(listEnvironments(userDataPath)).toEqual([environment])
+    // Why: the check only compares identities; generating a keypair here would race the server.
+    expect(existsSync(join(userDataPath, 'orca-e2ee-keypair.json'))).toBe(keypairContents !== null)
   })
 
   it('advances pairing revisions across equal and backward clock readings', () => {

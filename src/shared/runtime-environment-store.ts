@@ -3,6 +3,8 @@ import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { JsonStringifyByteLimitError } from './node-bounded-json-stringify'
 import { readNodeFileSyncWithinLimit } from './node-bounded-file-reader'
+import { publicKeyFromBase64, publicKeyToBase64 } from './e2ee-crypto'
+import { readLocalRuntimePublicKeyB64 } from './local-runtime-public-key'
 import { parsePairingCode, type PairingOffer } from './pairing'
 import { classifyRemotePairingHostname } from './remote-pairing-address'
 import { writeSecureJsonFileWithinLimit } from './bounded-secure-json-file'
@@ -57,6 +59,7 @@ export function addEnvironmentFromPairingCode(
       'Invalid pairing code. Expected an orca://pair?... URL or bare pairing payload.'
     )
   }
+  assertOfferIsNotLocalRuntime(userDataPath, offer)
   const store = readEnvironmentStore(userDataPath)
   const now = args.now ?? Date.now()
   const existing = store.environments.find((entry) => entry.name === args.name)
@@ -108,6 +111,7 @@ export function updateEnvironmentFromPairingCode(
       'Invalid pairing code. Expected an orca://pair?... URL or bare pairing payload.'
     )
   }
+  assertOfferIsNotLocalRuntime(userDataPath, offer)
   const store = readEnvironmentStore(userDataPath)
   const existing = resolveEnvironmentFromStore(store, selector)
   const now = args.now ?? Date.now()
@@ -135,6 +139,30 @@ export function updateEnvironmentFromPairingCode(
       .sort((a, b) => a.name.localeCompare(b.name))
   })
   return next
+}
+
+// Why identity, not address: an SSH-forwarded remote server is reachable at this host's loopback
+// address but never holds this host's keypair, while this host can be reached at any LAN name.
+function assertOfferIsNotLocalRuntime(userDataPath: string, offer: PairingOffer): void {
+  const localPublicKeyB64 = readLocalRuntimePublicKeyB64(userDataPath)
+  if (localPublicKeyB64 && pairingPublicKeysMatch(offer.publicKeyB64, localPublicKeyB64)) {
+    // Why: a saved entry pointing back at this server would make it a client of itself.
+    throw new RuntimeEnvironmentStoreError(
+      'invalid_argument',
+      'This pairing code belongs to this Orca server. Add a different remote server.'
+    )
+  }
+}
+
+// Why decode first: padding or base64url spelling must not slip past the self-pairing check.
+function pairingPublicKeysMatch(left: string, right: string): boolean {
+  try {
+    return (
+      publicKeyToBase64(publicKeyFromBase64(left)) === publicKeyToBase64(publicKeyFromBase64(right))
+    )
+  } catch {
+    return false
+  }
 }
 
 function getPairingConnectionDependency(

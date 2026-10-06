@@ -1,6 +1,6 @@
 import type { RuntimeHostStatusSnapshot } from '../../shared/runtime-host-status'
 import { resetRuntimeEnvironmentStatusOwners } from './runtime-environment-request-connections'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -419,6 +419,41 @@ describe('registerRuntimeEnvironmentHandlers', () => {
       message: 'A server named "desk" already exists.'
     })
     expect(environmentStore.listEnvironments(userDataPath)).toHaveLength(1)
+  })
+
+  it('tells the add-server dialog why it cannot pair the local Orca server to itself', async () => {
+    // Why: the local server answers verification for itself, so only the save step can refuse it.
+    writeFileSync(
+      join(userDataPath, 'orca-e2ee-keypair.json'),
+      JSON.stringify({
+        v: 1,
+        publicKeyB64: Buffer.from(new Uint8Array(32).fill(1)).toString('base64'),
+        secretKeyB64: 'unused'
+      })
+    )
+    registerRuntimeEnvironmentHandlers(store as never)
+    sendRemoteRuntimeRequestMock.mockResolvedValue({
+      id: 'status',
+      ok: true,
+      result: runtimeStatus(),
+      _meta: { runtimeId: 'runtime-a' }
+    })
+    const verifyAndAdd = handler<
+      { name: string; pairingCode: string },
+      { ok: boolean; kind?: string; message?: string }
+    >('runtimeEnvironments:verifyAndAddFromPairingCode')
+
+    await expect(
+      verifyAndAdd(null, {
+        name: 'this server',
+        pairingCode: pairingCode('ws://100.76.32.125:6768')
+      })
+    ).resolves.toEqual({
+      ok: false,
+      kind: 'environment-save-failed',
+      message: 'This pairing code belongs to this Orca server. Add a different remote server.'
+    })
+    expect(environmentStore.listEnvironments(userDataPath)).toEqual([])
   })
 
   it('requires an explicit Advanced selection before removing the Active Server', async () => {
