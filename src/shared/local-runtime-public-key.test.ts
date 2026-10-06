@@ -61,4 +61,15 @@ describe('readLocalRuntimePublicKeyB64', () => {
 
     expect(readLocalRuntimePublicKeyB64(userDataPath)).toBeNull()
   })
+
+  it('returns null for a valid keypair padded past the size bound', () => {
+    const userDataPath = makeUserDataPath()
+    // Why: valid JSON padded with whitespace parses fine, so only an 8 KiB bound rejects it.
+    writeFileSync(
+      join(userDataPath, E2EE_KEYPAIR_FILENAME),
+      JSON.stringify({ v: 1, publicKeyB64: 'public-key' }) + ' '.repeat(8 * 1024)
+    )
+
+    expect(readLocalRuntimePublicKeyB64(userDataPath)).toBeNull()
+  })
 })
