@@ -1,8 +1,11 @@
 import type { TerminalCursorContext } from '../../shared/terminal-composer-draft'
 import {
+  classifyAgentPromptComposerResidue,
   composerNoLongerShowsAgentPromptPaste,
+  type AgentPromptComposerResidue,
   type AgentPromptOwnPaste
 } from './agent-prompt-composer-residue'
+import { waitForAgentPromptDelay, waitForAgentPromptPromise } from './orca-runtime-core'
 
 // Why: right after Orca's own Enter the emulator can still paint the prompt it just submitted.
 const AGENT_PROMPT_COMPOSER_SETTLE_MS = 1_000
@@ -17,6 +20,20 @@ export type AgentPromptComposerWatch = (
   onParsed: (context: TerminalCursorContext | null | undefined) => void
 ) => () => void
 
+type AgentPromptComposerScreen = {
+  writeChain: Promise<void>
+  emulator: { getCursorLineContext: () => TerminalCursorContext | null | undefined }
+}
+
+/** The runtime state the ledger reads a pane's composer from. */
+export type AgentPromptComposerHost = {
+  watchComposer: AgentPromptComposerWatch
+  getScreen: (ptyId: string) => AgentPromptComposerScreen | undefined
+  /** The screen only when it is the whole screen: no provider-restored suffix or hydration. */
+  getJudgeableScreen: (ptyId: string) => AgentPromptComposerScreen | null
+  getGeneration: (ptyId: string) => number
+}
+
 type OwnPasteRecord = {
   generation: number
   payload: string
@@ -30,7 +47,61 @@ export class AgentPromptComposerLedger {
   private readonly lastPasteByPtyId = new Map<string, OwnPasteRecord>()
   private readonly repaintWatchByPtyId = new Map<string, { stop: () => void }>()
 
-  constructor(private readonly watchComposer: AgentPromptComposerWatch) {}
+  constructor(private readonly host: AgentPromptComposerHost) {}
+
+  async readResidue(
+    ptyId: string,
+    generation: number,
+    pastePayload: string,
+    signal?: AbortSignal
+  ): Promise<{ residue: AgentPromptComposerResidue; parsedThrough: Promise<void> | null }> {
+    const state = this.host.getJudgeableScreen(ptyId)
+    if (!state) {
+      return { residue: 'none', parsedThrough: null }
+    }
+    const settleMs = this.settleMsLeft(ptyId, generation)
+    if (settleMs > 0) {
+      await waitForAgentPromptDelay(settleMs, signal)
+    }
+    const parsedThrough = state.writeChain
+    await waitForAgentPromptPromise(parsedThrough, signal)
+    if (this.host.getScreen(ptyId) !== state || this.host.getGeneration(ptyId) !== generation) {
+      return { residue: 'none', parsedThrough: null }
+    }
+    return {
+      residue: classifyAgentPromptComposerResidue(
+        state.emulator.getCursorLineContext(),
+        pastePayload,
+        this.getOwnPaste(ptyId, generation)
+      ),
+      parsedThrough
+    }
+  }
+
+  /** Synchronous re-read: is the composer still exactly the parked prompt judged before the awaits? */
+  isStillParked(
+    ptyId: string,
+    generation: number,
+    pastePayload: string,
+    parsedThrough: Promise<void> | null
+  ): boolean {
+    const state = this.host.getJudgeableScreen(ptyId)
+    // Why: a newer write-chain link means PTY output arrived since the read, parsed or not yet.
+    if (
+      !state ||
+      state.writeChain !== parsedThrough ||
+      this.host.getGeneration(ptyId) !== generation
+    ) {
+      return false
+    }
+    return (
+      classifyAgentPromptComposerResidue(
+        state.emulator.getCursorLineContext(),
+        pastePayload,
+        this.getOwnPaste(ptyId, generation)
+      ) === 'same-prompt'
+    )
+  }
 
   markSubmitted(ptyId: string, generation: number): void {
     const now = Date.now()
@@ -81,7 +152,7 @@ export class AgentPromptComposerLedger {
     // that cannot see the composer does not end it, because doubt never blocks a write.
     const watch = { stop: (): void => {} }
     this.repaintWatchByPtyId.set(ptyId, watch)
-    const unsubscribe = this.watchComposer(ptyId, (context) => {
+    const unsubscribe = this.host.watchComposer(ptyId, (context) => {
       if (this.repaintWatchByPtyId.get(ptyId) !== watch) {
         return
       }

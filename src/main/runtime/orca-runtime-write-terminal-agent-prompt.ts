@@ -7,11 +7,7 @@ import {
   waitForAgentPromptDelay,
   waitForAgentPromptPromise
 } from './orca-runtime-core'
-import {
-  AGENT_PROMPT_COMPOSER_NOT_EMPTY_ERROR,
-  classifyAgentPromptComposerResidue,
-  type AgentPromptComposerResidue
-} from './agent-prompt-composer-residue'
+import { AGENT_PROMPT_COMPOSER_NOT_EMPTY_ERROR } from './agent-prompt-composer-residue'
 import { AgentPromptComposerLedger } from './agent-prompt-composer-ledger'
 import {
   AGENT_PROMPT_POST_PASTE_SUBMIT_DELAY_MS,
@@ -30,9 +26,12 @@ import {
 import { TUI_AGENT_CONFIG } from '../../shared/tui-agent-config'
 
 export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithResolveAuthoritativeTerminalWaitPermission {
-  private readonly agentPromptComposerLedger = new AgentPromptComposerLedger((ptyId, onParsed) =>
-    this.watchAgentPromptComposer(ptyId, onParsed)
-  )
+  private readonly agentPromptComposerLedger = new AgentPromptComposerLedger({
+    watchComposer: (ptyId, onParsed) => this.watchAgentPromptComposer(ptyId, onParsed),
+    getScreen: (ptyId) => this.headlessTerminals.get(ptyId),
+    getJudgeableScreen: (ptyId) => this.getJudgeableHeadlessTerminal(ptyId),
+    getGeneration: (ptyId) => this.getPtyLifecycleGeneration(ptyId)
+  })
 
   protected getJudgeableHeadlessTerminal(ptyId: string) {
     const state = this.headlessTerminals.get(ptyId)
@@ -48,63 +47,6 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
     return state
   }
 
-  private async readAgentPromptComposerResidue(
-    ptyId: string,
-    generation: number,
-    pastePayload: string,
-    signal?: AbortSignal
-  ): Promise<{ residue: AgentPromptComposerResidue; parsedThrough: Promise<void> | null }> {
-    const state = this.getJudgeableHeadlessTerminal(ptyId)
-    if (!state) {
-      return { residue: 'none', parsedThrough: null }
-    }
-    const settleMs = this.agentPromptComposerLedger.settleMsLeft(ptyId, generation)
-    if (settleMs > 0) {
-      await waitForAgentPromptDelay(settleMs, signal)
-    }
-    const parsedThrough = state.writeChain
-    await waitForAgentPromptPromise(parsedThrough, signal)
-    if (
-      this.headlessTerminals.get(ptyId) !== state ||
-      this.getPtyLifecycleGeneration(ptyId) !== generation
-    ) {
-      return { residue: 'none', parsedThrough: null }
-    }
-    return {
-      residue: classifyAgentPromptComposerResidue(
-        state.emulator.getCursorLineContext(),
-        pastePayload,
-        this.agentPromptComposerLedger.getOwnPaste(ptyId, generation)
-      ),
-      parsedThrough
-    }
-  }
-
-  /** Synchronous re-read: is the composer still exactly the parked prompt judged before the awaits? */
-  private isAgentPromptStillParked(
-    ptyId: string,
-    generation: number,
-    pastePayload: string,
-    parsedThrough: Promise<void> | null
-  ): boolean {
-    const state = this.getJudgeableHeadlessTerminal(ptyId)
-    // Why: a newer write-chain link means PTY output arrived since the read, parsed or not yet.
-    if (
-      !state ||
-      state.writeChain !== parsedThrough ||
-      this.getPtyLifecycleGeneration(ptyId) !== generation
-    ) {
-      return false
-    }
-    return (
-      classifyAgentPromptComposerResidue(
-        state.emulator.getCursorLineContext(),
-        pastePayload,
-        this.agentPromptComposerLedger.getOwnPaste(ptyId, generation)
-      ) === 'same-prompt'
-    )
-  }
-
   protected async writeTerminalAgentPrompt(
     handle: string,
     ptyId: string,
@@ -116,7 +58,7 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
     this.assertAgentPromptGeneration(ptyId, generation)
     // Why (#15976): a paste concatenates onto whatever the composer holds, so a retry after an
     // unobserved submit corrupted both prompts. Refuse foreign text; re-submit our own parked prompt.
-    const composer = await this.readAgentPromptComposerResidue(
+    const composer = await this.agentPromptComposerLedger.readResidue(
       ptyId,
       generation,
       pastePayload,
@@ -145,8 +87,8 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
     // its 8 s cap, where the desktop's own paste submitted in about 2 s.
     const renderGate =
       promptAlreadyParked || options.composerReady
-      ? null
-      : this.createAgentPromptRenderGate(ptyId, pasteIngestMs)
+        ? null
+        : this.createAgentPromptRenderGate(ptyId, pasteIngestMs)
     const waitTextCache: AgentPromptWaitTextCache = {}
     const preSubmitBaseline = submitWithPaste
       ? this.getAgentPromptActivity(handle, ptyId, waitTextCache)
@@ -157,7 +99,12 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
       await options.beforeWrite?.(ptyId)
       // Why: harmless output (a title) can arrive while beforeWrite awaits; judge the screen it left.
       const parked = promptAlreadyParked
-        ? await this.readAgentPromptComposerResidue(ptyId, generation, pastePayload, options.signal)
+        ? await this.agentPromptComposerLedger.readResidue(
+            ptyId,
+            generation,
+            pastePayload,
+            options.signal
+          )
         : null
       assertAgentPromptRequestActive(options.signal)
       this.assertAgentPromptGeneration(ptyId, generation)
@@ -168,7 +115,12 @@ export class OrcaRuntimeWithWriteTerminalAgentPrompt extends OrcaRuntimeWithReso
       // Why: beforeWrite awaited, and Enter alone submits whatever the composer holds by now.
       if (
         parked &&
-        !this.isAgentPromptStillParked(ptyId, generation, pastePayload, parked.parsedThrough)
+        !this.agentPromptComposerLedger.isStillParked(
+          ptyId,
+          generation,
+          pastePayload,
+          parked.parsedThrough
+        )
       ) {
         throw new Error(AGENT_PROMPT_COMPOSER_NOT_EMPTY_ERROR)
       }
