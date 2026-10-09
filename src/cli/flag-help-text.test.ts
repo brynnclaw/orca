@@ -116,6 +116,8 @@ describe('flag help text', () => {
       'host list',
       'account add',
       'account list',
+      'account select',
+      'account rm',
       'artifacts list',
       'artifacts share',
       'artifacts update',
@@ -147,6 +149,27 @@ describe('flag help text', () => {
           'Not used; this command only runs on this machine'
         )
       }
+    }
+  })
+
+  // Why: --environment picks the managed server to act on and --pairing-code is dropped, so neither routes.
+  it('gives the managed-server commands their own meaning for the selection flags', () => {
+    const managed = [
+      'environment status',
+      'environment update',
+      'environment rollback',
+      'environment recover',
+      'environment stop',
+      'environment cancel-stop'
+    ]
+    for (const path of managed) {
+      const help = formatCommandHelp(spec(path))
+      expect(optionDescription(help, 'environment'), path).toBe(
+        'Managed Orca server to act on (see orca environment list)'
+      )
+      expect(optionDescription(help, 'pairing-code'), path).toBe(
+        'Not used; this command only runs on this machine'
+      )
     }
   })
 })

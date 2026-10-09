@@ -13,6 +13,8 @@ const REMOTE_SELECTION_REJECTING_COMMANDS = [
   'host list',
   'account add',
   'account list',
+  'account select',
+  'account rm',
   'artifacts list',
   'artifacts share',
   'artifacts update',
@@ -33,6 +35,12 @@ const UNUSED_REMOTE_SELECTION_HELP: Record<string, string> = {
 }
 
 const REMOTE_SELECTION_IGNORING_COMMANDS = ['serve', 'vm recipe doctor', 'agent-context']
+
+// Why: --environment names the managed server to act on here, and index.ts drops --pairing-code.
+const MANAGED_SERVER_SELECTION_HELP: Record<string, string> = {
+  'pairing-code': UNUSED_REMOTE_SELECTION_HELP['pairing-code'],
+  environment: '--environment <selector> Managed Orca server to act on (see orca environment list)'
+}
 
 /** Per-command flag help, kept out of the shared help chain it would crowd. */
 const COMMAND_SCOPED_FLAG_HELP: Record<string, Record<string, string>> = {
@@ -67,17 +75,23 @@ const COMMAND_SCOPED_FLAG_HELP: Record<string, Record<string, string>> = {
     reference: '--reference <name>     Print one bundled reference by name',
     references: '--references           List the bundled reference names for a topic'
   },
+  'environment status': MANAGED_SERVER_SELECTION_HELP,
   'environment update': {
+    ...MANAGED_SERVER_SELECTION_HELP,
     force: '--force                Restart over running terminals instead of deferring the update'
   },
+  'environment rollback': MANAGED_SERVER_SELECTION_HELP,
   'environment recover': {
+    ...MANAGED_SERVER_SELECTION_HELP,
     'accept-changed-state':
       '--accept-changed-state Restore the prelaunch snapshot over state a rejected build changed',
     yes: '--yes                  Confirm discarding what the rejected build changed'
   },
   'environment stop': {
+    ...MANAGED_SERVER_SELECTION_HELP,
     yes: '--yes                  Confirm stopping the server and unlinking it from this machine'
   },
+  'environment cancel-stop': MANAGED_SERVER_SELECTION_HELP,
   'file open': {
     focus: FILE_OPEN_FOCUS_HELP
   },
