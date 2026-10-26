@@ -1,8 +1,6 @@
 import { spawnProcess } from '@orca/process-host'
 
 export const LINUX_LID_SLEEP_ASSERTION_RETRY_MS = 30_000
-// Hosts where logind denies the inhibitor fail every attempt, so back off.
-const LINUX_LID_SLEEP_ASSERTION_MAX_RETRY_MS = 30 * 60_000
 
 type Logger = Pick<Console, 'debug' | 'warn'>
 
@@ -46,7 +44,6 @@ export class LinuxLidSleepAssertion {
   private readonly spawn: SystemdInhibitSpawn
   private child: SystemdInhibitProcess | null = null
   private childStartedAt: number | null = null
-  private consecutiveFailures = 0
   private retryNotBefore: number | null = null
   private retryTimer: ReturnType<typeof setTimeout> | null = null
   private systemdInhibitUnavailable = false
@@ -201,13 +198,7 @@ export class LinuxLidSleepAssertion {
       return
     }
     this.logFailure(failureKey, reason, details, failureType)
-    this.consecutiveFailures += 1
-    this.retryNotBefore =
-      this.now() +
-      Math.min(
-        LINUX_LID_SLEEP_ASSERTION_RETRY_MS * 2 ** (this.consecutiveFailures - 1),
-        LINUX_LID_SLEEP_ASSERTION_MAX_RETRY_MS
-      )
+    this.retryNotBefore = this.now() + LINUX_LID_SLEEP_ASSERTION_RETRY_MS
     this.scheduleRetry()
     this.onUnexpectedFailure('linux-lid-assertion-failure')
   }
@@ -240,7 +231,6 @@ export class LinuxLidSleepAssertion {
     ) {
       this.lastFailureKey = null
       this.warnedForLastFailure = false
-      this.consecutiveFailures = 0
     }
   }
 

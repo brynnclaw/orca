@@ -344,7 +344,7 @@ describe('LinuxLidSleepAssertion', () => {
       return { assertion, failLatestChild, logger, spawn, spawnGaps }
     }
 
-    it('warns once and backs off exponentially up to a cap', () => {
+    it('warns once while it keeps retrying every interval', () => {
       vi.useFakeTimers()
       try {
         const { assertion, failLatestChild, logger, spawnGaps } = createRetryingAssertion()
@@ -355,9 +355,7 @@ describe('LinuxLidSleepAssertion', () => {
           vi.advanceTimersToNextTimer()
         }
 
-        expect(spawnGaps()).toEqual([
-          30_000, 60_000, 120_000, 240_000, 480_000, 960_000, 1_800_000, 1_800_000
-        ])
+        expect(spawnGaps()).toEqual(Array(8).fill(LINUX_LID_SLEEP_ASSERTION_RETRY_MS))
         expect(logger.warn).toHaveBeenCalledTimes(1)
         expect(logger.debug).toHaveBeenCalledTimes(7)
         assertion.dispose()
@@ -369,7 +367,7 @@ describe('LinuxLidSleepAssertion', () => {
     it('stays quiet across idle/active cycles until an inhibitor is held', () => {
       vi.useFakeTimers()
       try {
-        const { assertion, failLatestChild, logger, spawn, spawnGaps } = createRetryingAssertion()
+        const { assertion, failLatestChild, logger, spawn } = createRetryingAssertion()
 
         assertion.start('status-change')
         for (let attempt = 0; attempt < 4; attempt++) {
@@ -388,9 +386,7 @@ describe('LinuxLidSleepAssertion', () => {
         assertion.stop('status-change')
         assertion.start('status-change')
         failLatestChild()
-        vi.advanceTimersToNextTimer()
 
-        expect(spawnGaps().at(-1)).toBe(LINUX_LID_SLEEP_ASSERTION_RETRY_MS)
         expect(logger.warn).toHaveBeenCalledTimes(2)
         assertion.dispose()
       } finally {
@@ -401,7 +397,7 @@ describe('LinuxLidSleepAssertion', () => {
     it('treats an inhibitor that held for a full retry interval as recovered', () => {
       vi.useFakeTimers()
       try {
-        const { assertion, failLatestChild, logger, spawnGaps } = createRetryingAssertion()
+        const { assertion, failLatestChild, logger } = createRetryingAssertion()
 
         assertion.start('status-change')
         for (let attempt = 0; attempt < 4; attempt++) {
@@ -410,9 +406,7 @@ describe('LinuxLidSleepAssertion', () => {
         }
         vi.advanceTimersByTime(LINUX_LID_SLEEP_ASSERTION_RETRY_MS)
         failLatestChild()
-        vi.advanceTimersToNextTimer()
 
-        expect(spawnGaps().at(-1)).toBe(2 * LINUX_LID_SLEEP_ASSERTION_RETRY_MS)
         expect(logger.warn).toHaveBeenCalledTimes(2)
         assertion.dispose()
       } finally {
