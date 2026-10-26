@@ -1,8 +1,8 @@
 import { spawnProcess } from '@orca/process-host'
 
 export const LINUX_LID_SLEEP_ASSERTION_RETRY_MS = 30_000
-// Hosts without a usable logind (headless servers) fail every attempt, so back off.
-export const LINUX_LID_SLEEP_ASSERTION_MAX_RETRY_MS = 30 * 60_000
+// Hosts where logind denies the inhibitor fail every attempt, so back off.
+const LINUX_LID_SLEEP_ASSERTION_MAX_RETRY_MS = 30 * 60_000
 
 type Logger = Pick<Console, 'debug' | 'warn'>
 
@@ -124,17 +124,17 @@ export class LinuxLidSleepAssertion {
     child.on('exit', onExit)
     child.on('close', onClose)
     child.stdin?.on('error', onError)
-    // Keep the failure streak: systemd-inhibit can still exit 1 right after a successful spawn.
+    // Not a held lock yet: systemd-inhibit can still exit 1 right after spawning.
     this.resetRetrySuppression()
   }
 
   stop(_reason: string): void {
     this.resetRetrySuppression()
-    this.resetFailureStreak()
     if (!this.child) {
       return
     }
     const child = this.child
+    this.resetFailureStreakIfHeld()
     this.child = null
     this.childStartedAt = null
     // Pipe and child errors can arrive after stop; close ends both event sources.
@@ -172,13 +172,7 @@ export class LinuxLidSleepAssertion {
     }
     this.reportedFailures.add(child)
     if (this.child === child) {
-      if (
-        this.childStartedAt !== null &&
-        this.now() - this.childStartedAt >= LINUX_LID_SLEEP_ASSERTION_RETRY_MS
-      ) {
-        // The inhibitor was held, so this is a new failure rather than another retry.
-        this.resetFailureStreak()
-      }
+      this.resetFailureStreakIfHeld()
       this.child = null
       this.childStartedAt = null
     }
@@ -238,10 +232,16 @@ export class LinuxLidSleepAssertion {
     this.logger.warn('[agent-awake] Linux lid sleep assertion failed', payload)
   }
 
-  private resetFailureStreak(): void {
-    this.lastFailureKey = null
-    this.warnedForLastFailure = false
-    this.consecutiveFailures = 0
+  // Only a lock held for a retry interval ends the streak; idle/active cycles keep it.
+  private resetFailureStreakIfHeld(): void {
+    if (
+      this.childStartedAt !== null &&
+      this.now() - this.childStartedAt >= LINUX_LID_SLEEP_ASSERTION_RETRY_MS
+    ) {
+      this.lastFailureKey = null
+      this.warnedForLastFailure = false
+      this.consecutiveFailures = 0
+    }
   }
 
   private scheduleRetry(): void {
